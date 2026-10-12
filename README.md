@@ -251,3 +251,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 3. 시작 프로그램 등록(레지스트리 `Run`)과 자동 업데이트
 4. 상세 설정 화면(지금은 우클릭 메뉴 + JSON 파일)
 5. 프로바이더가 많아질 때 페이지 전환/스크롤
+
+## 7. 라이선스
+
+["THE BEER-WARE LICENSE" (Revision 42)](LICENSE) — 이 소프트웨어는 마음대로 써도 됩니다. 언젠가 만나면 맥주 한 잔 사주세요.
