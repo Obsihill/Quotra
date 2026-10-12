@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Quotra.WinUI</RootNamespace>
+    <AssemblyName>QuotraWinUI</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <!-- 비패키지(언패키지드) 실행: Windows App Runtime 설치 없이 자체 포함으로 동작 -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <EnableMsixTooling>false</EnableMsixTooling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+  </ItemGroup>
+
+  <!--
+    소모 속도/고갈 예측 엔진은 UI·색 타입에 의존하지 않아 같은 소스 파일을 직접 링크해 쓴다.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Quotra.Shared\Forecast\*.cs" Link="Forecast\%(Filename)%(Extension)" />
+    <!-- Codex 사용량 파서/클라이언트도 UI 타입을 쓰지 않아 그대로 링크한다. -->
+    <Compile Include="..\Quotra.Shared\Providers\*.cs" Link="Providers\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 사용자가 편집하는 프로바이더 정의. 값(사용률)은 담지 않는다 — IUsageSource 가 공급한다. -->
+    <None Update="Data\providers.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Data\providers.example.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- 파일이 없어도 빈 카탈로그로 동작하도록 실행 파일에도 심는다. -->
+    <EmbeddedResource Include="Data\providers.json" />
+  </ItemGroup>
+
+</Project>

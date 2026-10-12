@@ -1,0 +1,41 @@
+// 여기에 표시할 프로바이더를 정의한다. 값(사용률)은 여기 쓰지 않는다 —
+// 값은 IUsageSource 구현체만 채운다(등록이 없으면 화면에 "미연동"으로 나온다).
+//
+// Codex 와 Claude 는 앱에 실연동이 들어 있어서 로그인되어 있으면 값이 자동으로 채워진다(docs/providers.md).
+// 나머지 프로바이더를 붙이는 형식 예시는 Data/providers.example.json 에 있다.
+[
+  {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "vendor": "OpenCode",
+    "plan": "Go",
+    "accent": "#91A7FF",
+    "primaryLabel": "월간",
+    "secondaryLabel": "5시간",
+    "note": "프로바이더 설정에서 API 키 연결",
+    "enabled": true
+  },
+  {
+    "id": "codex",
+    "name": "ChatGPT",
+    "vendor": "OpenAI",
+    "plan": "ChatGPT 플랜",
+    "accent": "#5FD3A8",
+    "primaryLabel": "주간",
+    "secondaryLabel": "세션",
+    "note": "Codex 클라이언트 엔드포인트로 조회(공식 API 아님)",
+    "enabled": true
+  },
+  {
+    "id": "claude",
+    "name": "Claude",
+    "vendor": "Anthropic",
+    "plan": "Claude 구독",
+    "accent": "#D97757",
+    "primaryLabel": "주간",
+    "secondaryLabel": "5시간",
+    "note": "Claude Code OAuth 로그인으로 조회",
+    "enabled": true
+  }
+]
+

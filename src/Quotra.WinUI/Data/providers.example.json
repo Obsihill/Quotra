@@ -1,0 +1,56 @@
+// 카탈로그 형식 예시. 값(사용률/리셋)은 넣지 않는다 — 그건 IUsageSource 가 준다.
+// 실제로 쓰려면 이 파일을 providers.json 으로 복사하고, 각 id 에 소스를 Register 한다.
+// 참고: 기본 providers.json 에는 Codex 와 Claude 가 들어 있고 두 소스는 앱에 등록되어 있다.
+//   id            : 소스를 연결하는 키(UsageService.Register(providerId, source))
+//   name/vendor   : 표시 이름
+//   accent        : 구체 게이지 색(#RRGGBB)
+//   primaryLabel  : 장기 한도 이름(주간/월간 …)
+//   secondaryLabel: 단기 한도 이름(5시간/세션 …)
+//   enabled       : false 면 화면에서 숨김
+[
+  {
+    "id": "openai",
+    "name": "ChatGPT",
+    "vendor": "OpenAI",
+    "accent": "#5FD3A8",
+    "primaryLabel": "주간",
+    "secondaryLabel": "5시간",
+    "enabled": true
+  },
+  {
+    "id": "anthropic",
+    "name": "Claude",
+    "vendor": "Anthropic",
+    "accent": "#E08D6B",
+    "primaryLabel": "주간",
+    "secondaryLabel": "5시간",
+    "enabled": true
+  },
+  {
+    "id": "google",
+    "name": "Gemini",
+    "vendor": "Google",
+    "accent": "#7FA6FF",
+    "primaryLabel": "주간",
+    "secondaryLabel": "일일",
+    "enabled": true
+  },
+  {
+    "id": "github",
+    "name": "Copilot",
+    "vendor": "GitHub",
+    "accent": "#A78BFA",
+    "primaryLabel": "월간",
+    "secondaryLabel": "세션",
+    "enabled": true
+  },
+  {
+    "id": "xai",
+    "name": "Grok",
+    "vendor": "xAI",
+    "accent": "#D7DCE5",
+    "primaryLabel": "주간",
+    "secondaryLabel": "2시간",
+    "enabled": true
+  }
+]

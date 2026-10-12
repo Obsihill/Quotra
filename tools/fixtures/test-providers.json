@@ -1,0 +1,33 @@
+// 검증용 카탈로그(--catalog= 로 지정). 실제 앱 기본값은 빈 Data\providers.json 이다.
+[
+  {
+    "id": "openai",
+    "name": "ChatGPT",
+    "vendor": "OpenAI",
+    "plan": "Plus",
+    "accent": "#5FD3A8",
+    "primaryLabel": "주간",
+    "secondaryLabel": "5시간",
+    "enabled": true
+  },
+  {
+    "id": "anthropic",
+    "name": "Claude",
+    "vendor": "Anthropic",
+    "plan": "Max 20x",
+    "accent": "#E08D6B",
+    "primaryLabel": "주간",
+    "secondaryLabel": "5시간",
+    "enabled": true
+  },
+  {
+    "id": "xai",
+    "name": "Grok",
+    "vendor": "xAI",
+    "plan": "SuperGrok",
+    "accent": "#D7DCE5",
+    "primaryLabel": "주간",
+    "secondaryLabel": "2시간",
+    "enabled": true
+  }
+]

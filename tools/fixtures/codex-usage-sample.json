@@ -1,0 +1,22 @@
+{
+  "user_id": "user-EXAMPLE",
+  "account_id": "acct-EXAMPLE",
+  "plan_type": "prolite",
+  "rate_limit": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {
+      "used_percent": 10,
+      "limit_window_seconds": 604800,
+      "reset_after_seconds": 572677,
+      "reset_at": 1792310612
+    },
+    "secondary_window": null
+  },
+  "credits": {
+    "has_credits": false,
+    "unlimited": false,
+    "overage_limit_reached": false,
+    "balance": "0"
+  }
+}

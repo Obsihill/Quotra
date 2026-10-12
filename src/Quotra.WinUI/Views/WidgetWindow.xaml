@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Quotra.WinUI.Views.WidgetWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Quotra">
+
+    <!-- DWM clips the root and its Acrylic backdrop to native window corners, at every DPI. -->
+    <Grid x:Name="RootHost" Language="ko-KR" Background="{ThemeResource WidgetSurfaceBrush}">
+        <Border
+            x:Name="Panel"
+            Padding="6"
+            Background="{ThemeResource WidgetSurfaceBrush}"
+            BorderBrush="{ThemeResource WidgetBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+            <Grid>
+                <StackPanel
+                    x:Name="ProviderRow"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal" />
+
+                <Grid x:Name="EmptyState" Margin="10,0" ColumnSpacing="12" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="32" Height="32" CornerRadius="8"
+                            Background="{ThemeResource BadgeBrush}"
+                            BorderBrush="{ThemeResource BadgeBorderBrush}" BorderThickness="1">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE9CE;" FontSize="16"
+                                  Foreground="{ThemeResource TextSecondaryBrush}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock Style="{StaticResource RowTitleTextStyle}" Text="표시할 사용량이 없습니다" />
+                        <TextBlock Style="{StaticResource RowMetaTextStyle}" Text="연결된 서비스가 여기에 표시됩니다." />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

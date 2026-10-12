@@ -1,0 +1,17 @@
+## Build results
+bin/
+obj/
+*.user
+
+## Logs and local QA scratch (tools/*.ps1 outputs)
+*.log
+artifacts/
+
+## IDE
+.vs/
+.idea/
+*.suo
+
+## OS
+Thumbs.db
+.DS_Store
