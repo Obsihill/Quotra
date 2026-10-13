@@ -8,6 +8,7 @@
 2. Windows 코드 서명 인증서를 준비합니다. PFX는 저장소에 넣지 말고 GitHub 저장소의 Actions secrets에 다음 이름으로 등록합니다.
    - QUOTRA_SIGNING_PFX_BASE64: PFX 파일의 Base64 텍스트
    - QUOTRA_SIGNING_PASSWORD: PFX 암호
+   - 서명 준비가 끝나면 Actions variable `QUOTRA_SIGNED_RELEASES`를 `true`로 설정합니다. 이 값이 없으면 태그의 서명 릴리스 작업을 건너뛰며, 현재 서명 없는 배포 파일은 직접 첨부합니다.
 3. 첫 서명 앱은 SmartScreen 경고가 남을 수 있습니다. 게시자 이름이 표시되는지와 릴리스 체크섬을 확인하도록 사용자에게 안내합니다.
 
 Inno Setup 6.7.3 설치 파일은 릴리스 러너에서 Authenticode 서명을 확인한 뒤 설치합니다. 상업적으로 배포한다면 [Inno Setup 상업 라이선스 안내](https://jrsoftware.org/isorder.php)도 확인하세요.

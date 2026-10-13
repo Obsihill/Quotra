@@ -89,6 +89,7 @@ UI를 검증할 때는 `tools\verify-fluent.ps1`을 실행합니다. 기존 Rele
 - 각 프로바이더의 연결 상태와 마지막 성공 조회는 설정 창에서 확인할 수 있습니다. 예측은 사용량 표본을 10분 이상 수집한 뒤 나타납니다.
 
 배포 스크립트와 설치 프로그램 정의는 `tools\publish-release.ps1`, `tools\package-release.ps1`, `packaging\windows\Quotra.iss`에 있습니다. 릴리스 자동화 전에 GitHub 저장소와 `QUOTRA_SIGNING_PFX_BASE64`, `QUOTRA_SIGNING_PASSWORD` Actions 비밀 값을 설정해야 합니다.
+서명 준비 후 Actions variable `QUOTRA_SIGNED_RELEASES`를 `true`로 설정하면 태그를 통한 자동 릴리스가 활성화됩니다.
 서명 인증서가 없는 현재 버전은 로컬에서 만든 설치 파일·ZIP·체크섬을 릴리스에 직접 첨부합니다. 서명과 새 Windows 11 PC에서의 설치·제거 확인은 아직 완료되지 않았습니다.
 
 ### 개발용 스위치

@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   release:
+    if: vars.QUOTRA_SIGNED_RELEASES == 'true'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
