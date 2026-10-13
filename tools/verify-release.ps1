@@ -44,8 +44,9 @@ if ($RequireTrayRegistration) {
         throw "Quotra startup log was not created: $logPath"
     }
     $startupLog = [IO.File]::ReadAllText($logPath)
-    if ($startupLog -notmatch '(?m)^tray icon: 등록=True(?:\s|$)') {
-        $trayLog = ($startupLog -split "`r?`n" | Where-Object { $_ -match '^tray icon:' } | Select-Object -Last 1)
+    $logPrefix = '(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] )?'
+    if ($startupLog -notmatch ("(?m)^${logPrefix}tray icon: 등록=True(?:\s|$)")) {
+        $trayLog = ($startupLog -split "`r?`n" | Where-Object { $_ -match ("^${logPrefix}tray icon:") } | Select-Object -Last 1)
         throw "Quotra did not register its notification-area icon. $trayLog"
     }
 }

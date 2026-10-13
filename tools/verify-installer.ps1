@@ -53,7 +53,7 @@ try {
     $logPath = Join-Path $appDataDirectory 'quotra-winui.log'
     if (-not (Test-Path -LiteralPath $logPath)) { throw 'Installed app did not create its user log.' }
     $startupLog = [IO.File]::ReadAllText($logPath)
-    if ($startupLog -notmatch '(?m)^tray icon: 등록=True(?:\s|$)') { throw 'Installed app failed to register its tray icon.' }
+    if ($startupLog -notmatch '(?m)^(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] )?tray icon: 등록=True(?:\s|$)') { throw 'Installed app failed to register its tray icon.' }
 
     New-Item -ItemType Directory -Path $appDataDirectory -Force | Out-Null
     Set-Content -LiteralPath $markerPath -Value 'preserve user data across upgrade and uninstall' -Encoding utf8
