@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using Microsoft.Win32;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Quotra.Forecast;
@@ -77,6 +78,7 @@ public partial class App : Application
         Log.Write($"설정: alwaysOnTop={_settings.AlwaysOnTop} theme={_settings.Theme} acrylic={_settings.Acrylic}");
 
         ApplyCommandLineOverrides();
+        SetStartupRegistration(_settings.RunAtStartup, saveSetting: false);
 
         _usage = new UsageService(_catalogPath);
         _usage.Load();
@@ -155,8 +157,9 @@ public partial class App : Application
         };
         _usage.StartRefresh(DispatcherQueue.GetForCurrentThread(), _refreshInterval);
 
-        // 알림 영역 아이콘 없이 전역 핫키와 시스템 메시지만 수신한다.
+        // 알림 영역 메뉴, 전역 핫키, 시스템 메시지를 한 숨은 창에서 받는다.
         _systemMessages = new SystemMessageSink();
+        _systemMessages.RunAtStartupEnabled = _settings.RunAtStartup;
         _systemMessages.ToggleRequested += (_, _) =>
         {
             if (_settings.Pinned) _widget.ToggleVisibility();
@@ -164,7 +167,8 @@ public partial class App : Application
         };
         _systemMessages.SystemThemeChanged += (_, _) => OnSystemThemeChanged();
         _systemMessages.DisplayChanged += (_, _) => _widget.PlaceOnMonitor(ScreenInfo.Primary());
-        _systemMessages.Start();
+        _systemMessages.TrayCommandRequested += (_, command) => OnTrayCommand(command);
+        _systemMessages.Start(Path.Combine(AppContext.BaseDirectory, "Assets", "Quotra.ico"));
 
         // 상단 엣지 흔들기 → 위젯 표시 전환(창을 새로 만들지 않는다)
         _watcher = new EdgeWatcher { EdgeBand = 6, ShakeCount = 2, ShakeDistance = 40, ShakeWindowMs = 1000 };
@@ -659,6 +663,9 @@ public partial class App : Application
             case WidgetCommand.TogglePinned:
                 SetPinned(!_settings.Pinned);
                 break;
+            case WidgetCommand.ToggleRunAtStartup:
+                SetStartupRegistration(!_settings.RunAtStartup, saveSetting: true);
+                break;
 
             case WidgetCommand.ThemeAuto:
                 ApplyTheme(ThemeMode.Auto);
@@ -685,9 +692,76 @@ public partial class App : Application
                 _widget?.HideWidget();
                 break;
             case WidgetCommand.Exit:
-                _systemMessages?.Dispose();
-                Exit();
+                ExitApplication();
                 break;
+        }
+    }
+
+    private void OnTrayCommand(TrayCommand command)
+    {
+        switch (command)
+        {
+            case TrayCommand.ToggleWidget:
+                _widget?.ToggleVisibility();
+                break;
+            case TrayCommand.ProviderSettings:
+                OpenProviderSettings();
+                break;
+            case TrayCommand.ToggleRunAtStartup:
+                SetStartupRegistration(!_settings.RunAtStartup, saveSetting: true);
+                break;
+            case TrayCommand.Exit:
+                ExitApplication();
+                break;
+        }
+    }
+
+    private void ExitApplication()
+    {
+        _systemMessages?.Dispose();
+        _systemMessages = null;
+        Exit();
+    }
+
+    private void SetStartupRegistration(bool enabled, bool saveSetting)
+    {
+        const string registryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        const string valueName = "Quotra";
+        bool previous = _settings.RunAtStartup;
+        try
+        {
+            using RegistryKey? runKey = Registry.CurrentUser.CreateSubKey(registryPath, writable: true);
+            if (runKey is null)
+            {
+                throw new InvalidOperationException("Windows 시작 프로그램 설정을 열 수 없습니다.");
+            }
+
+            if (enabled)
+            {
+                string executable = Environment.ProcessPath
+                    ?? throw new InvalidOperationException("실행 파일 경로를 확인할 수 없습니다.");
+                runKey.SetValue(valueName, $"\"{executable}\"");
+            }
+            else
+            {
+                runKey.DeleteValue(valueName, throwOnMissingValue: false);
+            }
+
+            _settings.RunAtStartup = enabled;
+            if (saveSetting) _settings.Save();
+            Log.Write($"Windows 시작 시 실행: {enabled}");
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or InvalidOperationException or System.Security.SecurityException)
+        {
+            _settings.RunAtStartup = previous;
+            Log.Write(ex, "Windows 시작 프로그램 설정 실패");
+        }
+        finally
+        {
+            if (_systemMessages is not null)
+            {
+                _systemMessages.RunAtStartupEnabled = _settings.RunAtStartup;
+            }
         }
     }
 

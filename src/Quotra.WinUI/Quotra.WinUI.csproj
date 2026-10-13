@@ -2,11 +2,16 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <RootNamespace>Quotra.WinUI</RootNamespace>
     <AssemblyName>QuotraWinUI</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Quotra.ico</ApplicationIcon>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <FileVersion>$(Version).0</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
     <Platforms>x64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
@@ -35,6 +40,7 @@
 
   <ItemGroup>
     <!-- 사용자가 편집하는 프로바이더 정의. 값(사용률)은 담지 않는다 — IUsageSource 가 공급한다. -->
+    <None Update="Assets\Quotra.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Update="Data\providers.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -44,5 +50,16 @@
     <!-- 파일이 없어도 빈 카탈로그로 동작하도록 실행 파일에도 심는다. -->
     <EmbeddedResource Include="Data\providers.json" />
   </ItemGroup>
+
+  <!-- Loose compiled XAML must be published as well as copied to the build output. -->
+  <Target Name="PublishCompiledXaml" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_QuotraPublishResource Include="$(TargetDir)**\*.xbf;$(TargetDir)$(AssemblyName)*.pri" />
+      <ResolvedFileToPublish Include="@(_QuotraPublishResource)">
+        <RelativePath>%(_QuotraPublishResource.RecursiveDir)%(_QuotraPublishResource.Filename)%(_QuotraPublishResource.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 
 </Project>

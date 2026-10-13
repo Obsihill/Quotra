@@ -2,188 +2,224 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Quotra.Providers;
+using Quotra.WinUI.Interop;
+using Windows.Security.Credentials;
 
 namespace Quotra.WinUI.Services;
 
-/// <summary>
-/// Claude 구독 사용량 — Claude Code 의 OAuth 로그인을 읽어 5시간·주간 한도를 조회한다.
-/// 자격증명은 매번 읽기만 하며, 토큰 갱신이나 원문 로깅은 하지 않는다.
-/// </summary>
+/// <summary>Claude Desktop session, an explicit Quotra sign-in, or Claude Code OAuth.</summary>
 [UsageSource("claude")]
-public sealed class ClaudeUsageSource : IUsageSource
+public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostics
 {
     private const string UsageEndpoint = "https://api.anthropic.com/api/oauth/usage";
-    private const string OAuthBeta = "oauth-2025-04-20";
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
-    private readonly string? _authPath;
+    private const string Resource = "Quotra.Claude";
+    private const string Account = "web-session";
+    private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
+        { Timeout = TimeSpan.FromSeconds(10) };
+    private string? _authPath;
+    private string _endpoint = UsageEndpoint;
 
     public ClaudeUsageSource(string? authPath = null) => _authPath = authPath;
-
     public string DisplayName => "Claude (Anthropic 구독 한도)";
-
     public string ShortName => "Claude";
+    public Uri LoginUri => new("https://claude.ai/login");
+    public string SessionCookieName => "sessionKey";
+    public string? OrganizationCookieName => "lastActiveOrg";
+    public bool HasSavedSession => LoadSession() is not null;
+    public static string DefaultAuthPath => Path.Combine(ProviderAuthPaths.ClaudeHome, ".credentials.json");
 
-    public static string DefaultAuthPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".claude",
-        ".credentials.json");
+    public void ApplyDiagnostics(string? url, string? file)
+    {
+        if (!string.IsNullOrWhiteSpace(file)) _authPath = Path.GetFullPath(file, AppContext.BaseDirectory);
+        if (!string.IsNullOrWhiteSpace(url)) _endpoint = url;
+    }
 
     public async Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
     {
-        string authPath = _authPath ?? DefaultAuthPath;
-        ClaudeCredential credential = await ReadCredentialAsync(authPath, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // Explicitly chosen Quotra login wins. Do not silently change accounts if it expires.
+            if (_authPath is null && _endpoint == UsageEndpoint)
+            {
+                if (LoadSession() is { } saved)
+                    return await FetchSessionAsync(saved, cancellationToken).ConfigureAwait(false);
+                var desktop = ClaudeDesktopSessionReader.Read();
+                if (desktop.Session is not null)
+                    return await FetchSessionAsync(new ClaudeSession(desktop.Session, desktop.OrganizationId), cancellationToken).ConfigureAwait(false);
+                if (!File.Exists(DefaultAuthPath))
+                    throw new InvalidOperationException(desktop.Error
+                        ?? "Claude 로그인이 발견되지 않았습니다. 데스크톱에서 로그인한 뒤 새로고침하거나 설정에서 Claude 로그인을 사용하세요.");
+            }
+            return await FetchOAuthAsync(_authPath ?? DefaultAuthPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException("Claude 조회 시간이 초과되었습니다. 네트워크를 확인한 뒤 새로고침하세요.");
+        }
+        catch (HttpRequestException)
+        {
+            throw new InvalidOperationException("Claude에 연결할 수 없습니다. 네트워크를 확인한 뒤 새로고침하세요.");
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("Claude 응답에 사용 가능한 한도 값이 없습니다. 구독 상태를 확인하거나 잠시 후 다시 조회하세요.");
+        }
+    }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, UsageEndpoint);
+    public async Task VerifySessionAsync(string session, string? organizationId, CancellationToken cancellationToken)
+    {
+        try { await FetchSessionAsync(new ClaudeSession(ClaudeDesktopSessionReader.ValidateSession(session), organizationId), cancellationToken).ConfigureAwait(false); }
+        catch (HttpRequestException) { throw new InvalidOperationException("Claude에 연결할 수 없습니다. 네트워크를 확인하고 다시 시도하세요."); }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new InvalidOperationException("Claude 연결 확인 시간이 초과되었습니다."); }
+        catch (JsonException) { throw new InvalidOperationException("Claude 계정에서 숫자로 된 사용 한도를 확인할 수 없습니다."); }
+    }
+
+    public void SaveSession(string session, string? organizationId)
+    {
+        var credential = new ClaudeSession(ClaudeDesktopSessionReader.ValidateSession(session), NormalizeOrganizationId(organizationId));
+        new PasswordVault().Add(new PasswordCredential(Resource, Account, JsonSerializer.Serialize(credential)));
+    }
+
+    public void DeleteSession()
+    {
+        var vault = new PasswordVault();
+        try { vault.Remove(vault.Retrieve(Resource, Account)); }
+        catch (System.Runtime.InteropServices.COMException ex) when ((uint)ex.HResult == 0x80070490) { }
+    }
+
+    private static ClaudeSession? LoadSession()
+    {
+        try
+        {
+            var credential = new PasswordVault().Retrieve(Resource, Account);
+            credential.RetrievePassword();
+            return JsonSerializer.Deserialize<ClaudeSession>(credential.Password)
+                ?? throw new InvalidOperationException("Quotra에 저장된 Claude 로그인을 읽을 수 없습니다. 설정에서 다시 로그인하세요.");
+        }
+        catch (System.Runtime.InteropServices.COMException ex) when ((uint)ex.HResult == 0x80070490) { return null; }
+        catch (System.Runtime.InteropServices.COMException) { throw new InvalidOperationException("Windows 자격 증명 보관함에 접근할 수 없습니다. 현재 Windows 사용자로 실행하세요."); }
+        catch (JsonException) { throw new InvalidOperationException("Quotra에 저장된 Claude 로그인 형식이 올바르지 않습니다. 설정에서 다시 로그인하세요."); }
+    }
+
+    private static async Task<ProviderSnapshot> FetchSessionAsync(ClaudeSession credential, CancellationToken cancellationToken)
+    {
+        string session = ClaudeDesktopSessionReader.ValidateSession(credential.Session);
+        using JsonDocument organizations = await GetWebJsonAsync("/api/organizations", session, cancellationToken).ConfigureAwait(false);
+        string organization = SelectOrganization(organizations.RootElement, credential.OrganizationId);
+        using JsonDocument usage = await GetWebJsonAsync($"/api/organizations/{organization}/usage", session, cancellationToken).ConfigureAwait(false);
+        ProviderSnapshot snapshot = ParseUsage(usage.RootElement, null);
+        string identity = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(organization)))[..16];
+        return snapshot with { Note = "Claude 웹 로그인으로 조회", HistoryKey = $"claude-web-{identity}-{snapshot.PrimaryLabel}" };
+    }
+
+    private static async Task<JsonDocument> GetWebJsonAsync(string path, string session, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://claude.ai" + path);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.TryAddWithoutValidation("User-Agent", "Quotra/1.0.1");
+        request.Headers.TryAddWithoutValidation("Referer", "https://claude.ai/settings/usage");
+        request.Headers.TryAddWithoutValidation("Cookie", "sessionKey=" + session);
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response, web: true);
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    internal static string SelectOrganization(JsonElement organizations, string? preferredId)
+    {
+        if (organizations.ValueKind != JsonValueKind.Array) throw new JsonException();
+        var choices = organizations.EnumerateArray().Where(org => org.ValueKind == JsonValueKind.Object
+            && org.TryGetProperty("uuid", out JsonElement uuid) && uuid.ValueKind == JsonValueKind.String
+            && Guid.TryParse(uuid.GetString(), out _)
+            && (!org.TryGetProperty("capabilities", out JsonElement capabilities) || capabilities.ValueKind != JsonValueKind.Array
+                || capabilities.EnumerateArray().Any(cap => cap.ValueKind == JsonValueKind.String && cap.GetString() == "chat"))).ToArray();
+        string? normalized = NormalizeOrganizationId(preferredId);
+        if (normalized is not null)
+        {
+            foreach (JsonElement org in choices)
+                if (string.Equals(org.GetProperty("uuid").GetString(), normalized, StringComparison.OrdinalIgnoreCase)) return normalized;
+            throw new InvalidOperationException("선택한 Claude 조직을 찾지 못했습니다. Claude 로그인 창에서 사용할 조직으로 전환한 뒤 연결하세요.");
+        }
+        if (choices.Length == 1) return choices[0].GetProperty("uuid").GetString()!;
+        throw new InvalidOperationException(choices.Length == 0 ? "Claude 채팅 구독 조직이 없습니다. 계정과 구독 상태를 확인하세요."
+            : "Claude 조직이 여러 개 있습니다. 설정의 Claude 로그인 창에서 사용할 조직으로 전환한 뒤 연결하세요.");
+    }
+
+    private static string? NormalizeOrganizationId(string? id) => Guid.TryParse(id, out Guid parsed) ? parsed.ToString() : null;
+
+    private async Task<ProviderSnapshot> FetchOAuthAsync(string path, CancellationToken cancellationToken)
+    {
+        ClaudeCredential credential = await ReadCredentialAsync(path, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, _endpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.AccessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("anthropic-beta", OAuthBeta);
-
+        request.Headers.TryAddWithoutValidation("anthropic-beta", "oauth-2025-04-20");
         using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            throw new InvalidOperationException("Claude Code 로그인이 만료되었거나 거부되었습니다. Claude Code를 열어 계정 로그인을 갱신하세요.");
-        }
-
-        if (response.StatusCode == HttpStatusCode.Forbidden)
-        {
-            throw new InvalidOperationException("Claude 사용량 조회가 거부되었습니다(HTTP 403). Claude Code 로그인과 Pro/Max 구독 상태를 확인하세요.");
-        }
-
-        if ((int)response.StatusCode == 429)
-        {
-            throw new InvalidOperationException("Claude 사용량 조회가 일시적으로 제한되었습니다. 다음 자동 갱신 때 다시 시도합니다.");
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Claude 사용량 조회에 실패했습니다(HTTP {(int)response.StatusCode}).");
-        }
-
-        string json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-        try
-        {
-            return ParseUsage(json, credential.Plan);
-        }
-        catch (JsonException)
-        {
-            throw new InvalidOperationException("Claude 사용량 응답 형식이 바뀌어 값을 읽지 못했습니다.");
-        }
+        EnsureSuccess(response, web: false);
+        using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+        return ParseUsage(document.RootElement, credential.Plan) with { Note = "Claude Code 로그인으로 조회" };
     }
 
-    private static async Task<ClaudeCredential> ReadCredentialAsync(string authPath, CancellationToken cancellationToken)
+    private static void EnsureSuccess(HttpResponseMessage response, bool web)
     {
-        if (!File.Exists(authPath))
-        {
-            throw new InvalidOperationException("Claude Code OAuth 로그인이 없습니다. Claude Code에서 Claude 계정으로 로그인하세요.");
-        }
-
-        try
-        {
-            string json = await File.ReadAllTextAsync(authPath, cancellationToken).ConfigureAwait(false);
-            using JsonDocument document = JsonDocument.Parse(json);
-
-            if (!document.RootElement.TryGetProperty("claudeAiOauth", out JsonElement oauth) ||
-                oauth.ValueKind != JsonValueKind.Object ||
-                !oauth.TryGetProperty("accessToken", out JsonElement tokenElement) ||
-                tokenElement.ValueKind != JsonValueKind.String ||
-                string.IsNullOrWhiteSpace(tokenElement.GetString()))
-            {
-                throw new InvalidOperationException("Claude Code OAuth 토큰을 찾지 못했습니다. Claude Code 로그인을 확인하세요.");
-            }
-
-            if (oauth.TryGetProperty("expiresAt", out JsonElement expiresAt) &&
-                expiresAt.ValueKind == JsonValueKind.Number &&
-                expiresAt.TryGetInt64(out long expiresAtMilliseconds) &&
-                expiresAtMilliseconds > 0 &&
-                expiresAtMilliseconds <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
-            {
-                throw new InvalidOperationException("Claude Code OAuth 로그인이 만료되었습니다. Claude Code를 열어 로그인 정보를 갱신하세요.");
-            }
-
-            string? subscriptionType = oauth.TryGetProperty("subscriptionType", out JsonElement subscription) &&
-                                       subscription.ValueKind == JsonValueKind.String
-                ? subscription.GetString()
-                : null;
-
-            return new ClaudeCredential(tokenElement.GetString()!, PlanLabel(subscriptionType));
-        }
-        catch (JsonException)
-        {
-            throw new InvalidOperationException("Claude Code OAuth 파일을 읽지 못했습니다. Claude Code 로그인을 확인하세요.");
-        }
-        catch (IOException)
-        {
-            throw new InvalidOperationException("Claude Code OAuth 파일을 읽을 수 없습니다.");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            throw new InvalidOperationException("Claude Code OAuth 파일에 접근할 수 없습니다.");
-        }
+        int code = (int)response.StatusCode;
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            throw new InvalidOperationException(web
+                ? $"Claude 웹 로그인이 만료되었거나 조회가 차단되었습니다(HTTP {code}). 설정에서 다시 로그인하세요."
+                : $"Claude Code 로그인이 거부되었습니다(HTTP {code}). Claude Code 로그인을 갱신하거나 설정에서 Claude 로그인을 사용하세요.");
+        if (code == 429) throw new InvalidOperationException("Claude 조회가 일시적으로 제한되었습니다. 다음 자동 갱신 때 다시 시도합니다.");
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Claude 사용량 조회에 실패했습니다(HTTP {code}). 잠시 후 다시 시도하세요.");
     }
 
-    private static ProviderSnapshot ParseUsage(string json, string? plan)
+    private static async Task<ClaudeCredential> ReadCredentialAsync(string path, CancellationToken cancellationToken)
     {
-        using JsonDocument document = JsonDocument.Parse(json);
-        JsonElement root = document.RootElement;
-
-        if (root.ValueKind != JsonValueKind.Object)
+        try
         {
-            throw new JsonException("Expected an object.");
+            using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false));
+            if (!document.RootElement.TryGetProperty("claudeAiOauth", out JsonElement oauth) || oauth.ValueKind != JsonValueKind.Object
+                || !oauth.TryGetProperty("accessToken", out JsonElement token) || token.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(token.GetString()))
+                throw new InvalidOperationException("Claude Code 구독 OAuth 토큰이 없습니다. 설정에서 Claude 로그인을 사용하세요.");
+            if (oauth.TryGetProperty("expiresAt", out JsonElement expires) && expires.ValueKind == JsonValueKind.Number && expires.TryGetInt64(out long milliseconds)
+                && milliseconds > 0 && milliseconds <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+                throw new InvalidOperationException("Claude Code 로그인이 만료되었습니다. Claude Code를 실행해 갱신하거나 설정에서 Claude 로그인을 사용하세요.");
+            string? plan = oauth.TryGetProperty("subscriptionType", out JsonElement subscription) && subscription.ValueKind == JsonValueKind.String
+                ? subscription.GetString() : null;
+            return new ClaudeCredential(token.GetString()!, PlanLabel(plan));
         }
+        catch (FileNotFoundException) { throw new InvalidOperationException("Claude Code 로그인 파일이 없습니다. 설정에서 Claude 로그인을 사용하세요."); }
+        catch (DirectoryNotFoundException) { throw new InvalidOperationException("Claude Code 로그인 폴더가 없습니다. CLAUDE_CONFIG_DIR 경로를 확인하거나 설정에서 로그인하세요."); }
+        catch (JsonException) { throw new InvalidOperationException("Claude Code 로그인 파일 형식이 올바르지 않습니다. 다시 로그인하세요."); }
+        catch (IOException) { throw new InvalidOperationException("Claude Code 로그인 파일을 읽을 수 없습니다."); }
+        catch (UnauthorizedAccessException) { throw new InvalidOperationException("Claude Code 로그인 파일에 접근할 권한이 없습니다."); }
+    }
 
-        WindowUsage? weekly = ReadWindow(root, "seven_day");
-        if (weekly is null)
-        {
-            throw new JsonException("The weekly usage window is missing.");
-        }
-
-        return new ProviderSnapshot(
-            Primary: weekly,
-            Secondary: ReadWindow(root, "five_hour"),
-            Plan: plan);
+    internal static ProviderSnapshot ParseUsage(JsonElement root, string? plan)
+    {
+        if (root.ValueKind != JsonValueKind.Object) throw new JsonException();
+        WindowUsage? weekly = ReadWindow(root, "seven_day"), session = ReadWindow(root, "five_hour");
+        if (weekly is null && session is null) throw new JsonException();
+        bool sessionOnly = weekly is null;
+        return new ProviderSnapshot(Primary: weekly ?? session, Secondary: sessionOnly ? null : session, Plan: plan,
+            HistoryKey: sessionOnly ? "claude-five-hour" : "claude", PrimaryLabel: sessionOnly ? "5시간" : "주간", SecondaryLabel: "5시간");
     }
 
     private static WindowUsage? ReadWindow(JsonElement root, string name)
     {
-        if (!root.TryGetProperty(name, out JsonElement window) || window.ValueKind == JsonValueKind.Null)
-        {
-            return null;
-        }
-
-        if (window.ValueKind != JsonValueKind.Object ||
-            !window.TryGetProperty("utilization", out JsonElement utilization) ||
-            utilization.ValueKind != JsonValueKind.Number ||
-            !utilization.TryGetDouble(out double percent) ||
-            !double.IsFinite(percent) || percent < 0)
-        {
-            throw new JsonException($"The {name} utilization is invalid.");
-        }
-
-        DateTimeOffset? resetsAt = null;
-        if (window.TryGetProperty("resets_at", out JsonElement reset) &&
-            reset.ValueKind == JsonValueKind.String &&
-            DateTimeOffset.TryParse(
-                reset.GetString(),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal,
-                out DateTimeOffset parsedReset))
-        {
-            resetsAt = parsedReset;
-        }
-
-        // Claude OAuth usage reports utilization as a percentage from 0 to 100.
-        return new WindowUsage(Math.Clamp(percent / 100.0, 0, 1), resetsAt);
+        if (!root.TryGetProperty(name, out JsonElement window) || window.ValueKind == JsonValueKind.Null) return null;
+        if (window.ValueKind != JsonValueKind.Object || !window.TryGetProperty("utilization", out JsonElement utilization)
+            || utilization.ValueKind != JsonValueKind.Number || !utilization.TryGetDouble(out double percent)
+            || !double.IsFinite(percent) || percent < 0) throw new JsonException();
+        DateTimeOffset? resetAt = null;
+        if (window.TryGetProperty("resets_at", out JsonElement reset) && reset.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(reset.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset parsed)) resetAt = parsed;
+        return new WindowUsage(Math.Clamp(percent / 100, 0, 1), resetAt);
     }
 
     private static string? PlanLabel(string? plan) => plan?.ToLowerInvariant() switch
     {
-        "pro" => "Claude Pro",
-        "max" => "Claude Max",
-        "free" => "Claude Free",
-        _ => null,
+        "pro" => "Claude Pro", "max" => "Claude Max", "free" => "Claude Free", _ => null,
     };
-
     private sealed record ClaudeCredential(string AccessToken, string? Plan);
+    private sealed record ClaudeSession(string Session, string? OrganizationId);
 }

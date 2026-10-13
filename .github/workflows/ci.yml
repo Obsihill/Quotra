@@ -1,0 +1,31 @@
+name: Windows build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        shell: pwsh
+        run: |
+          dotnet restore src/Quotra.WinUI/Quotra.WinUI.csproj --runtime win-x64
+          if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
+          dotnet build src/Quotra.WinUI/Quotra.WinUI.csproj --configuration Release --runtime win-x64 --no-restore -p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+      - name: Run offline release checks
+        shell: pwsh
+        run: |
+          $exe = 'src/Quotra.WinUI/bin/x64/Release/net10.0-windows10.0.22000.0/win-x64/QuotraWinUI.exe'
+          if (-not (Test-Path $exe)) { throw "Build output not found: $exe" }
+          ./tools/verify-release.ps1 -Executable $exe -RequireTrayRegistration

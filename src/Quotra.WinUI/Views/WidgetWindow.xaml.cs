@@ -30,7 +30,7 @@ namespace Quotra.WinUI.Views;
 /// 포커스를 훔치지 않는다(WS_EX_NOACTIVATE + SW_SHOWNOACTIVATE). 작업 중인 창에서
 /// 키보드 포커스가 이동하면 위젯이 아니라 도구로서 실패한 것이다.
 /// </summary>
-public enum WidgetCommand { TogglePinned, ToggleAlwaysOnTop, ThemeAuto, ThemeLight, ThemeDark, ToggleAcrylic, ProviderSettings, Refresh, Hide, Exit }
+public enum WidgetCommand { TogglePinned, ToggleAlwaysOnTop, ToggleRunAtStartup, ThemeAuto, ThemeLight, ThemeDark, ToggleAcrylic, ProviderSettings, Refresh, Hide, Exit }
 
 public sealed partial class WidgetWindow : Window
 {
@@ -103,11 +103,13 @@ public sealed partial class WidgetWindow : Window
         _forecastOptions = forecastOptions ?? new ForecastOptions();
         _sampleInterval = sampleInterval ?? UsageSampler.DefaultInterval;
         _hwnd = Win32Interop.GetWindowFromWindowId(AppWindow.Id);
+        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Quotra.ico"));
 
         Log.Write($"widget: hwnd=0x{_hwnd:X}");
 
         ConfigureChrome();
         ConfigureBackdrop();
+        EmptySettingsButton.Click += (_, _) => CommandInvoked?.Invoke(this, WidgetCommand.ProviderSettings);
         BuildCells();
         ConfigureSettingsMenu();
 
@@ -197,6 +199,7 @@ public sealed partial class WidgetWindow : Window
         }
         Toggle("위젯 고정", _settings.Pinned, WidgetCommand.TogglePinned);
         Toggle("항상 위에 표시", _settings.AlwaysOnTop, WidgetCommand.ToggleAlwaysOnTop);
+        Toggle("Windows 로그인 시 실행", _settings.RunAtStartup, WidgetCommand.ToggleRunAtStartup);
         Toggle("반투명 배경", _settings.Acrylic, WidgetCommand.ToggleAcrylic);
         var themes = new MenuFlyoutSubItem { Text = "테마" };
         foreach (var option in new[] { ("시스템 설정", ThemeMode.Auto, WidgetCommand.ThemeAuto),
@@ -282,7 +285,7 @@ public sealed partial class WidgetWindow : Window
         _cells.Clear();
         _hoveredIndex = -1;
         _hoveredText = string.Empty;
-        EmptyState.Visibility = _providers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateEmptyState();
         if (_providers.Count == 0)
         {
             // 빈 패널 대신 다음 할 일을 알려준다.
@@ -333,6 +336,7 @@ public sealed partial class WidgetWindow : Window
             BuildCells();
             if (_monitor is not null && !_popupAnimating) PlaceOnMonitor(_monitor);
         }
+        UpdateEmptyState();
         DateTimeOffset now = DateTimeOffset.Now;
 
         for (int i = 0; i < _cells.Count && i < _providers.Count; i++)
@@ -341,7 +345,7 @@ public sealed partial class WidgetWindow : Window
             CellUi cell = _cells[i];
 
             cell.Root.SetIdentity(provider.Name, provider.PrimaryLabel, provider.Accent);
-            ToolTipService.SetToolTip(cell.Root, provider.Note);
+            ToolTipService.SetToolTip(cell.Root, ProviderStatusTooltip(provider));
             cell.Battery.HasValue = provider.HasPrimary;
             cell.Battery.Level = provider.RemainingOrZero;
             cell.Battery.FillColor = provider.HasPrimary
@@ -358,7 +362,12 @@ public sealed partial class WidgetWindow : Window
             {
                 // 평소: 예측 감소량 (고갈이 예상되면 시각까지). 아직 예측이 준비 안 됐으면(Collecting) 아무것도 표시하지 않는다.
                 var forecast = Forecast(provider, now);
-                cell.DefaultText = forecast.Status == ForecastStatus.Collecting ? "" : ForecastText.Short(forecast, now);
+                cell.DefaultText = forecast.Status == ForecastStatus.Collecting ? "측정 중" : ForecastText.Short(forecast, now);
+                if (forecast.Status == ForecastStatus.Collecting)
+                {
+                    ToolTipService.SetToolTip(cell.Root,
+                        $"{ProviderStatusTooltip(provider)}\n예측은 사용량을 10분 이상 측정한 뒤 표시됩니다. 현재 {forecast.SampleSpan.TotalMinutes:0.#}분, 표본 {forecast.SampleCount}개.");
+                }
 
                 // 호버: 남은 퍼센테이지 + 초기화까지 남은 시간
                 cell.HoverText = $"남음 {provider.RemainingText} · 리셋 {provider.ResetRemainingShortAt(now)}";
@@ -371,6 +380,50 @@ public sealed partial class WidgetWindow : Window
         }
 
         ApplyHoverVisuals();
+    }
+
+    private void UpdateEmptyState()
+    {
+        EmptyState.Visibility = _providers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (_catalogProviders.Count == 0)
+        {
+            EmptyTitle.Text = "프로바이더 목록을 찾을 수 없습니다";
+            EmptyDescription.Text = "설치 파일의 서비스 목록을 확인하세요.";
+            EmptySettingsButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        EmptySettingsButton.Visibility = Visibility.Visible;
+        ProviderUsage[] linked = _catalogProviders.Where(provider => provider.IsLinked).ToArray();
+        ProviderUsage[] failed = linked.Where(provider => provider.Error is not null).ToArray();
+        if (linked.Length == 0)
+        {
+            EmptyTitle.Text = "사용량 서비스를 연결하세요";
+            EmptyDescription.Text = "API 키가 필요한 서비스는 연결 설정에서 등록할 수 있습니다.";
+        }
+        else if (failed.Length > 0)
+        {
+            EmptyTitle.Text = "사용량 조회에 실패했습니다";
+            EmptyDescription.Text = $"{string.Join(", ", failed.Select(provider => provider.Name))} · 연결 설정에서 오류 원인을 확인하고 로그인하거나 새로고침하세요.";
+        }
+        else
+        {
+            EmptyTitle.Text = "사용량을 불러오는 중입니다";
+            EmptyDescription.Text = "예측은 사용량 표본을 10분 이상 모은 뒤 표시됩니다.";
+        }
+    }
+
+    private static string ProviderStatusTooltip(ProviderUsage provider)
+    {
+        string status = provider.Error is not null
+            ? (provider.HasAnyValue ? "조회 실패 · 이전 성공 값을 유지합니다" : "연결 확인 필요")
+            : provider.StatusText;
+        string updated = provider.UpdatedAt is { } at
+            ? $"마지막 성공 {at.LocalDateTime:yyyy-MM-dd HH:mm}"
+            : "성공한 조회 없음";
+        string description = string.IsNullOrWhiteSpace(provider.Note) ? string.Empty : $"\n{provider.Note}";
+        string error = provider.Error is null ? string.Empty : $"\n{provider.Error}";
+        return $"{provider.Name} · {status}\n{updated}{error}{description}";
     }
 
     /// <summary>호버된 셀만 퍼센테이지/초기화 시각을 보여준다.</summary>

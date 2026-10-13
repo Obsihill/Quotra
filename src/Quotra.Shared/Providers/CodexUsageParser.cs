@@ -35,7 +35,7 @@ public static class CodexUsageParser
 
     private static readonly string[] UsedNames = ["used_percent", "usedPercent", "utilization", "used", "percent_used"];
     private static readonly string[] ResetSecondsNames = ["resets_in_seconds", "reset_after_seconds"];
-    private static readonly string[] ResetEpochNames = ["reset_at", "resets_at", "resets_at_seconds"];
+    private static readonly string[] ResetEpochNames = ["reset_at", "resets_at", "resets_at_seconds", "resetsAt"];
 
     /// <summary>원시 응답을 해석한다. 창을 하나도 못 찾으면 false 와 사유를 돌려준다.</summary>
     /// <param name="now">에포크 초를 상대 시간으로 바꿀 기준(검증에서 고정값을 넣는다).</param>
@@ -84,7 +84,7 @@ public static class CodexUsageParser
                 sessionPick?.Used,
                 weeklyPick?.ResetsIn,
                 sessionPick?.ResetsIn,
-                FindString(document.RootElement, "plan_type") ?? FindString(document.RootElement, "plan") ?? string.Empty,
+                FindString(document.RootElement, "plan_type") ?? FindString(document.RootElement, "planType") ?? FindString(document.RootElement, "plan") ?? string.Empty,
                 weeklyPick?.LimitReached,
                 summary);
 
@@ -128,25 +128,31 @@ public static class CodexUsageParser
     private static RateWindow? TryReadWindow(JsonElement element, bool? limitReached, DateTimeOffset now)
     {
         double? used = null;
+        bool isPercent = false;
         foreach (string name in UsedNames)
         {
             if (TryGetNumber(element, name, out double value))
             {
                 used = value;
+                isPercent = name is "used_percent" or "usedPercent" or "percent_used";
                 break;
             }
         }
 
-        if (used is null)
+        if (used is null || !double.IsFinite(used.Value) || used.Value < 0)
         {
             return null;
         }
 
         // 0~1 로 오든 0~100 으로 오든 받아들인다.
-        double normalized = Math.Clamp(used.Value > 1.5 ? used.Value / 100.0 : used.Value, 0, 1);
+        double normalized = Math.Clamp(isPercent || used.Value > 1.5 ? used.Value / 100.0 : used.Value, 0, 1);
 
         double? minutes = null;
-        if (TryGetNumber(element, "window_minutes", out double m))
+        if (TryGetNumber(element, "windowDurationMins", out double rpcMinutes))
+        {
+            minutes = rpcMinutes;
+        }
+        else if (TryGetNumber(element, "window_minutes", out double m))
         {
             minutes = m;
         }
@@ -163,7 +169,7 @@ public static class CodexUsageParser
             minutes = h * 60.0;
         }
 
-        if (minutes is null or <= 0)
+        if (minutes is null or <= 0 || !double.IsFinite(minutes.Value))
         {
             return null;
         }

@@ -58,12 +58,10 @@ public static class CodexUsageClient
     ];
 
     /// <summary>Codex 자격증명 파일 경로.</summary>
-    public static string AuthPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".codex",
-        "auth.json");
+    public static string AuthPath => Path.Combine(ProviderAuthPaths.CodexHome, "auth.json");
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = false })
+        { Timeout = TimeSpan.FromSeconds(10) };
 
     /// <summary>사용량을 조회한다. 실패는 예외가 아니라 <see cref="CodexFetchResult.Status"/> 로 알린다.</summary>
     /// <param name="host">조회 주소(기본 https://chatgpt.com).</param>
@@ -74,7 +72,15 @@ public static class CodexUsageClient
         CancellationToken cancellationToken = default)
     {
         string credentialPath = authPath ?? AuthPath;
-        (string Token, string AccountId, string AuthMode)? credential = ReadCredential(credentialPath);
+        (string Token, string AccountId, string AuthMode)? credential;
+        try { credential = ReadCredential(credentialPath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            string reason = ex is JsonException ? "로그인 파일 형식이 올바르지 않습니다."
+                : ex is UnauthorizedAccessException ? "로그인 파일에 접근할 권한이 없습니다."
+                : "로그인 파일을 읽을 수 없습니다.";
+            return CodexFetchResult.Fail(CodexFetchStatus.NoCredential, reason + " Codex에서 다시 로그인한 뒤 새로고침하세요.");
+        }
         if (credential is null)
         {
             return CodexFetchResult.Fail(
@@ -120,7 +126,7 @@ public static class CodexUsageClient
                     authFailure ??= new CodexFetchResult(
                         CodexFetchStatus.Expired,
                         null,
-                        $"{path} → {code} (auth_mode={authMode})",
+                        $"{path} → {code}",
                         url);
                     continue;
                 }
@@ -188,11 +194,6 @@ public static class CodexUsageClient
     {
         try
         {
-            if (!File.Exists(path))
-            {
-                return null;
-            }
-
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
             JsonElement root = document.RootElement;
 
@@ -213,10 +214,8 @@ public static class CodexUsageClient
             // API 키 로그인 상태면 구독 한도를 알 수 없다.
             return null;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-        {
-            return null;
-        }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
     }
 
     private static string GetString(JsonElement element, string name) =>

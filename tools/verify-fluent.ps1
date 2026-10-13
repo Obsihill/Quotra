@@ -12,7 +12,7 @@ param([switch]$SkipBuild)
 
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
-$taskOutput = Join-Path $taskRoot 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64'
+$taskOutput = Join-Path $taskRoot 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64'
 $taskQa = Join-Path ([IO.Path]::GetTempPath()) 'Quotra\verify-fluent'
 $taskExe = Join-Path $taskOutput 'QuotraWinUI.exe'
 New-Item -ItemType Directory -Path $taskQa -Force | Out-Null

@@ -66,7 +66,7 @@ public static class CodexSelfTest
         Near(results, "창 두 개 · 세션 리셋(분)", two.SessionResetsIn?.TotalMinutes, 60, 0.5);
 
         // 3) 0~1 스케일로 오는 응답도 같은 값이 된다.
-        CodexUsage unit = Parse("""{"rate_limit":{"used_percent":0.42,"limit_window_seconds":604800}}""", results, "0~1 스케일");
+        CodexUsage unit = Parse("""{"rate_limit":{"used":0.42,"limit_window_seconds":604800}}""", results, "0~1 스케일");
         Near(results, "0~1 스케일 · 주간", unit.WeeklyUsed, 0.42);
 
         // 4) 다른 이름 조합(utilization + window_minutes)도 읽는다.
@@ -106,6 +106,14 @@ public static class CodexSelfTest
             "이름이 바뀐 응답");
         Near(results, "이름이 바뀐 응답 · 주간", renamed.WeeklyUsed, 0.88);
         Near(results, "이름이 바뀐 응답 · 세션", renamed.SessionUsed, 0.12);
+
+        // RPC field names, low percentages, and a missing weekly window must retain their meaning.
+        CodexUsage rpc = Parse("""{"planType":"plus","primary":{"usedPercent":1,"windowDurationMins":300,"resetsAt":1791763200},"secondary":{"usedPercent":0.5,"windowDurationMins":10080}}""", results, "클라이언트 RPC");
+        Near(results, "클라이언트 RPC · 1% 세션", rpc.SessionUsed, 0.01, 0.00001);
+        Near(results, "클라이언트 RPC · 0.5% 주간", rpc.WeeklyUsed, 0.005, 0.00001);
+        Text(results, "클라이언트 RPC · 플랜", rpc.Plan, "plus");
+        CodexUsage low = Parse("""{"rate_limit":{"used_percent":1,"limit_window_seconds":604800}}""", results, "1% 사용");
+        Near(results, "1% 사용 · 주간", low.WeeklyUsed, 0.01, 0.00001);
 
         return results;
     }

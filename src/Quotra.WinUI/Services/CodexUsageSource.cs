@@ -56,7 +56,13 @@ public sealed class CodexUsageSource : IUsageSource, IUsageDiagnostics, IUsageSe
 
     public async Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
     {
-        CodexFetchResult result = await CodexUsageClient.FetchAsync(_host, _authPath, cancellationToken).ConfigureAwait(false);
+        CodexFetchResult? clientResult = null;
+        if (_authPath is null && _host == "https://chatgpt.com")
+            clientResult = await CodexAppServerClient.FetchAsync(cancellationToken).ConfigureAwait(false);
+        CodexFetchResult result = clientResult?.Ok == true ? clientResult
+            : await CodexUsageClient.FetchAsync(_host, _authPath, cancellationToken).ConfigureAwait(false);
+        if (!result.Ok && clientResult is not null)
+            result = result with { Detail = $"{clientResult.Detail} {result.Detail}" };
 
         LastDetail = result.Ok ? $"windows=[{result.Usage!.WindowsSummary}]" : $"{result.Status}: {result.Detail}";
 
@@ -69,15 +75,19 @@ public sealed class CodexUsageSource : IUsageSource, IUsageDiagnostics, IUsageSe
         CodexUsage usage = result.Usage!;
         DateTimeOffset now = DateTimeOffset.Now;
 
+        bool sessionOnly = usage.WeeklyUsed is null && usage.SessionUsed is not null;
         return new ProviderSnapshot(
             Primary: usage.WeeklyUsed is { } weekly
                 ? new WindowUsage(weekly, ResolveReset(now, usage.WeeklyResetsIn))
-                : null,
-            Secondary: usage.SessionUsed is { } session
+                : usage.SessionUsed is { } onlySession ? new WindowUsage(onlySession, ResolveReset(now, usage.SessionResetsIn)) : null,
+            Secondary: !sessionOnly && usage.SessionUsed is { } session
                 ? new WindowUsage(session, ResolveReset(now, usage.SessionResetsIn))
                 : null,
             Plan: PlanLabel(usage.Plan),
-            Note: usage.LimitReached == true ? "한도 도달" : null);
+            Note: usage.LimitReached == true ? "한도 도달" : result.Detail,
+            HistoryKey: sessionOnly ? "codex-session" : "codex",
+            PrimaryLabel: sessionOnly ? "세션" : "주간",
+            SecondaryLabel: "세션");
     }
 
     private static DateTimeOffset? ResolveReset(DateTimeOffset now, TimeSpan? resetsIn) =>
@@ -99,7 +109,7 @@ public sealed class CodexUsageSource : IUsageSource, IUsageDiagnostics, IUsageSe
     private string Explain(CodexFetchResult result) => result.Status switch
     {
         CodexFetchStatus.NoCredential =>
-            $"Codex 자격증명 없음 — {_authPath ?? CodexUsageClient.AuthPath} 에 ChatGPT 토큰이 필요합니다(API 키 로그인 상태일 수 있습니다).",
+            $"Codex 로그인 확인 필요 — {result.Detail}",
         CodexFetchStatus.Expired =>
             $"Codex 토큰이 거부됐습니다({result.Detail}) — Codex 앱을 한 번 실행하면 갱신됩니다.",
         CodexFetchStatus.RateLimited =>

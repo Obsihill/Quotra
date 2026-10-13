@@ -16,7 +16,21 @@ public sealed record ProviderSnapshot(
     WindowUsage? Secondary = null,
     string? Plan = null,
     string? Note = null,
-    string? HistoryKey = null);
+    string? HistoryKey = null,
+    string? PrimaryLabel = null,
+    string? SecondaryLabel = null);
+
+/// <summary>Provider website sign-in, separate from API-key input.</summary>
+public interface IWebSessionUsageSource : IUsageSource
+{
+    Uri LoginUri { get; }
+    string SessionCookieName { get; }
+    string? OrganizationCookieName { get; }
+    bool HasSavedSession { get; }
+    Task VerifySessionAsync(string session, string? organizationId, CancellationToken cancellationToken);
+    void SaveSession(string session, string? organizationId);
+    void DeleteSession();
+}
 
 /// <summary>
 /// **확장 지점** — 프로바이더 한 곳의 사용량을 실제로 가져오는 구현체.

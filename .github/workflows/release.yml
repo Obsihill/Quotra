@@ -1,0 +1,118 @@
+name: Publish Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Validate release tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v(?<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$') { throw "Expected a stable SemVer tag such as v1.0.0; got $tag" }
+          "version=$($Matches.version)" >> $env:GITHUB_OUTPUT
+      - name: Install Inno Setup 6.7.3
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $setup
+          $signature = Get-AuthenticodeSignature -LiteralPath $setup
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B\.V\.') {
+            throw "Inno Setup signature check failed: $($signature.Status) / $($signature.SignerCertificate.Subject)"
+          }
+          $installer = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-') -PassThru -Wait
+          if ($installer.ExitCode -ne 0) { throw "Inno Setup installation failed with exit code $($installer.ExitCode)." }
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'Inno Setup compiler was not installed.' }
+      - name: Publish self-contained folder
+        shell: pwsh
+        run: ./tools/publish-release.ps1 -Version '${{ steps.version.outputs.version }}'
+      - name: Run offline release checks
+        shell: pwsh
+        run: ./tools/verify-release.ps1 -Executable artifacts/release/publish/win-x64/QuotraWinUI.exe -RequireTrayRegistration
+      - name: Sign app, create installer and ZIP, and checksum artifacts
+        shell: pwsh
+        env:
+          QUOTRA_SIGNING_PFX_BASE64: ${{ secrets.QUOTRA_SIGNING_PFX_BASE64 }}
+          QUOTRA_SIGNING_PASSWORD: ${{ secrets.QUOTRA_SIGNING_PASSWORD }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:QUOTRA_SIGNING_PFX_BASE64) -or [string]::IsNullOrWhiteSpace($env:QUOTRA_SIGNING_PASSWORD)) {
+            throw 'Set QUOTRA_SIGNING_PFX_BASE64 and QUOTRA_SIGNING_PASSWORD repository secrets before publishing a public release.'
+          }
+          $certificate = Join-Path $env:RUNNER_TEMP 'Quotra-signing.pfx'
+          [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:QUOTRA_SIGNING_PFX_BASE64))
+          try {
+            $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
+            $signtool = Get-ChildItem -LiteralPath $kits -Filter signtool.exe -File -Recurse |
+              Where-Object { [IO.Path]::GetFileName($_.DirectoryName) -ieq 'x64' } |
+              Sort-Object FullName |
+              Select-Object -Last 1
+            if (-not $signtool) { throw 'Windows SDK SignTool was not found on the runner.' }
+
+            $publish = 'artifacts/release/publish/win-x64/QuotraWinUI.exe'
+            & $signtool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:QUOTRA_SIGNING_PASSWORD $publish
+            if ($LASTEXITCODE -ne 0) { throw 'Signing the application executable failed.' }
+            & $signtool.FullName verify /pa /v $publish
+            if ($LASTEXITCODE -ne 0) { throw 'Application signature verification failed.' }
+
+            ./tools/package-release.ps1 -Version $env:RELEASE_VERSION -SkipPublish
+            if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
+            $installer = "artifacts/release/installer/Quotra-Setup-$($env:RELEASE_VERSION)-win-x64.exe"
+            & $signtool.FullName sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:QUOTRA_SIGNING_PASSWORD $installer
+            if ($LASTEXITCODE -ne 0) { throw 'Signing the installer failed.' }
+            & $signtool.FullName verify /pa /v $installer
+            if ($LASTEXITCODE -ne 0) { throw 'Installer signature verification failed.' }
+
+            ./tools/verify-installer.ps1 -Installer $installer -Version $env:RELEASE_VERSION
+            if ($LASTEXITCODE -ne 0) { throw 'Installer smoke verification failed.' }
+
+            $releaseDirectory = 'artifacts/release'
+            $artifactNames = @(
+              "Quotra-$($env:RELEASE_VERSION)-win-x64.zip",
+              "installer/Quotra-Setup-$($env:RELEASE_VERSION)-win-x64.exe"
+            )
+            $lines = foreach ($name in $artifactNames) {
+              $path = Join-Path $releaseDirectory $name
+              $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $([IO.Path]::GetFileName($path))"
+            }
+            $lines | Set-Content -LiteralPath (Join-Path $releaseDirectory 'SHA256SUMS.txt') -Encoding utf8
+          }
+          finally {
+            Remove-Item -LiteralPath $certificate -Force -ErrorAction SilentlyContinue
+          }
+      - name: Prepare release notes
+        id: notes
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $changelog = Get-Content CHANGELOG.md -Raw
+          $pattern = '(?ms)^## \[' + [regex]::Escape($env:RELEASE_VERSION) + '\].*?(?=^## \[|\z)'
+          $match = [regex]::Match($changelog, $pattern)
+          if (-not $match.Success) { throw "No CHANGELOG.md entry exists for $($env:RELEASE_VERSION)." }
+          $notes = Join-Path $env:RUNNER_TEMP 'Quotra-release-notes.md'
+          Set-Content -LiteralPath $notes -Value $match.Value.Trim() -Encoding utf8
+          "path=$notes" >> $env:GITHUB_OUTPUT
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Quotra ${{ steps.version.outputs.version }}
+          body_path: ${{ steps.notes.outputs.path }}
+          files: |
+            artifacts/release/Quotra-${{ steps.version.outputs.version }}-win-x64.zip
+            artifacts/release/installer/Quotra-Setup-${{ steps.version.outputs.version }}-win-x64.exe
+            artifacts/release/SHA256SUMS.txt

@@ -1,8 +1,8 @@
 # Quotra — LLM 사용량 위젯 (WinUI 3)
 
 실제 사용량이 확인된 프로바이더만 표시합니다. 미로그인·미연동 서비스는 숨기고, 성공한 서비스의 일시적인 조회 오류는 마지막 값을 유지합니다.
-위젯을 우클릭하면 고정, 항상 위, 반투명, 테마, 새로고침, 숨기기, 종료 메뉴가 열립니다.
-시스템 트레이 아이콘은 사용하지 않습니다. 숨긴 위젯은 `Ctrl+Alt+F9`로 다시 표시할 수 있으며, 팝업 모드에서는 상단 흔들기로도 표시합니다.
+위젯을 우클릭하면 고정, 항상 위, Windows 로그인 시 실행, 반투명, 테마, 새로고침, 숨기기 메뉴가 열립니다.
+알림 영역 아이콘 우클릭 메뉴에서도 Windows 로그인 시 실행을 켜고 끌 수 있습니다. 위젯 표시·숨기기와 프로바이더 설정, 종료도 같은 메뉴에 있으며 `Ctrl+Alt+F9`로도 위젯을 표시할 수 있습니다.
 
 여러 LLM 구독의 **남은 한도**를 화면 위쪽에 떠 있는 가로 배터리 바로 보여줍니다.
 프로바이더마다 배터리 하나가 나란히 놓이고, 평소에는 **배터리 몸통 안에 예측 감소량**만 보입니다.
@@ -10,7 +10,7 @@
 Windows 11 스타일의 **Desktop Acrylic 반투명 표면 · 차분한 배터리 · 다크/라이트 테마**를 사용합니다.
 서비스 이름과 한도 종류를 정렬하고, 호버한 셀만 은은하게 강조합니다.
 
-**Codex와 Claude를 기본 연동합니다** — 앱을 켜면 기존 로그인 정보를 사용해 값을 자동으로 읽습니다.
+**Codex·Claude·Command Code를 기본 연동합니다** — 앱을 켜면 기존 로그인 정보를 사용해 값을 자동으로 읽습니다.
 
 ```
 평소 — 프로바이더마다 배터리 하나(숫자는 몸통 안)
@@ -31,7 +31,7 @@ Claude 에 마우스를 올리면 그 셀의 문구만 바뀐다(창 크기는 �
 
 | 기능 | 상태 |
 | --- | --- |
-| **Codex·Claude 실연동** | 각각의 기존 로그인 정보를 사용해 ChatGPT와 Claude 구독 한도를 자동 조회. Claude는 주간 창을 배터리에, 5시간 창을 보조 한도에 표시 ([docs/providers.md](docs/providers.md)) |
+| **Codex·Claude·Command Code 실연동** | Codex·Claude 데스크톱/CLI와 Command Code CLI 로그인을 탐색해 한도를 조회. Claude 자동 연결 실패 시 설정에서 직접 로그인 ([docs/providers.md](docs/providers.md)) |
 | **가로 배터리 바** | 서비스 배지·이름·한도 종류를 정렬. 24dip 높이의 배터리가 남은 한도를 왼쪽부터 채우고, 그 안에 숫자가 들어간다. 색은 등급(정상/주의/위험) |
 | **반투명 배경** | 창 뒤에 Desktop Acrylic 블러를 적용하고 루트·패널은 투명하게 유지합니다. 지원하지 않는 환경에서는 다크/라이트 불투명 색으로 대체 |
 | **바깥에는 아무 줄도 없음** | 평소 노출은 배터리 안 `20%/10분 → 2시간 25분 남음`(예측 감소량)뿐. 배터리 밖에 남는 줄이 없다 |
@@ -63,20 +63,33 @@ Claude 에 마우스를 올리면 그 셀의 문구만 바뀐다(창 크기는 �
 
 ```powershell
 dotnet build src\Quotra.WinUI\Quotra.WinUI.csproj -c Release
-src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64\QuotraWinUI.exe
+src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64\QuotraWinUI.exe
 ```
 
 | 요구 | 값 |
 | --- | --- |
-| OS | Windows 11 (빌드 10.0.19041 이상) |
-| SDK | .NET 10 SDK (`net10.0-windows10.0.19041.0`) |
+| OS | Windows 11 x64 (빌드 10.0.22000 이상) |
+| SDK | 안정 버전 .NET 10 SDK (`net10.0-windows10.0.22000.0`) |
 | 플랫폼 | x64 |
 | Windows App SDK | 2.5.1 — **자체 포함**(`WindowsAppSDKSelfContained=true`)이라 Windows App Runtime 설치가 필요 없습니다 |
 
-종료는 우클릭 메뉴의 **종료**로 합니다. 기본 카탈로그에는 ChatGPT와 Claude가 있습니다.
+종료는 우클릭 메뉴의 **종료**로 합니다. 기본 카탈로그에는 ChatGPT, Claude, Command Code, OpenCode Go가 있습니다. OpenCode Go는 API 키 연결이 필요합니다.
 다른 서비스를 추가하려면 `Data\providers.json` 정의와 소스를 함께 연결합니다([docs/providers.md](docs/providers.md)).
 
 UI를 검증할 때는 `tools\verify-fluent.ps1`을 실행합니다. 기존 Release 빌드를 재사용하고 검증용 데이터와 로그는 임시 폴더에 저장합니다.
+
+## 배포와 업데이트
+
+서명 준비와 태그 배포 절차는 [docs/releasing.md](docs/releasing.md)를 참고하세요.
+
+- 버전은 `v주.부.수`로 올립니다. 현재 버전은 `1.0.1`이며, 버그 수정은 패치, 기능 추가는 부 버전, 호환성을 깨는 변경은 주 버전을 올립니다.
+- GitHub Releases에서 Windows 11 x64용 `Quotra-Setup-버전-win-x64.exe`를 받아 설치합니다. 설치 없이 실행하려면 포터블 ZIP을 폴더째 압축 해제한 뒤 `QuotraWinUI.exe`를 실행합니다.
+- 설치 프로그램은 관리자 권한 없이 설치하고 시작 메뉴 바로가기를 만듭니다. 업데이트는 새 설치 파일을 기존 설치 위에 실행합니다. 설정과 사용량 이력은 제거 후에도 기본 보존됩니다.
+- 현재 `1.0.1` 설치 파일과 앱에는 코드 서명이 적용되지 않았습니다. Windows에서 게시자 확인 또는 SmartScreen 경고가 표시될 수 있습니다. 다운로드한 파일은 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다. 서명 인증서를 준비한 뒤 자동 릴리스에서 서명을 적용합니다.
+- 각 프로바이더의 연결 상태와 마지막 성공 조회는 설정 창에서 확인할 수 있습니다. 예측은 사용량 표본을 10분 이상 수집한 뒤 나타납니다.
+
+배포 스크립트와 설치 프로그램 정의는 `tools\publish-release.ps1`, `tools\package-release.ps1`, `packaging\windows\Quotra.iss`에 있습니다. 릴리스 자동화 전에 GitHub 저장소와 `QUOTRA_SIGNING_PFX_BASE64`, `QUOTRA_SIGNING_PASSWORD` Actions 비밀 값을 설정해야 합니다.
+서명 인증서가 없는 현재 버전은 로컬에서 만든 설치 파일·ZIP·체크섬을 릴리스에 직접 첨부합니다. 서명과 새 Windows 11 PC에서의 설치·제거 확인은 아직 완료되지 않았습니다.
 
 ### 개발용 스위치
 
@@ -103,7 +116,7 @@ UI를 검증할 때는 `tools\verify-fluent.ps1`을 실행합니다. 기존 Rele
 | `--capture=path` | 3초 뒤 XAML 화면을 PNG로 저장하고 배경 투명 상태·콘텐츠 경계를 확인(Desktop Acrylic 자체는 창 캡처에만 보임) |
 
 ```powershell
-$out = 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64'
+$out = 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64'
 $exe = "$out\QuotraWinUI.exe"
 $repo = (Get-Location).Path
 
@@ -139,11 +152,11 @@ src/Quotra.WinUI/               주력 앱 (WinUI 3)
 ├─ Themes/ColorMath.cs          Mix/Lighten/Darken/WithAlpha
 ├─ Models/ProviderUsage.cs      테마 의존 없는 모델(값이 없으면 null — 0 과 구분)
 ├─ Services/                    UsageService(카탈로그+소스) · IUsageSource(확장 지점) · UsageSampler(10분 표본)
-│                               · CodexUsageSource · ClaudeUsageSource · SimulatedUsageSource(개발용 예시)
+│                               · CodexUsageSource · ClaudeUsageSource · CommandCodeUsageSource · OpenCodeUsageSource · SimulatedUsageSource(개발용 예시)
 │                               · WidgetSettings · SystemTheme
-└─ Data/providers.json          프로바이더 정의(기본 = ChatGPT + Claude) + providers.example.json(형식 예시)
+└─ Data/providers.json          프로바이더 정의(기본 = ChatGPT + Claude + Command Code + OpenCode Go) + providers.example.json(형식 예시)
 
-docs/providers.md               프로바이더를 붙이는 방법 + Codex·Claude 실연동 상세(엔드포인트·파서·실패 경로)
+docs/providers.md               프로바이더를 붙이는 방법 + Codex·Claude·Command Code 연동 상세
 
 src/Quotra.Shared/Forecast/     예측 엔진 — UI·색 타입에 의존하지 않아 두 앱이 함께 쓸 수 있다
 ├─ UsagePoint.cs                시각 + 사용률 표본, 한도 창(Primary/Secondary)
@@ -227,7 +240,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | 배터리 안 숫자 | 채움 84% 에서 `0.67%/10분 → 내일 00:48` 이 채움 위에서 어둡게, 잔량 50% 아래 구간은 밝게 나뉘어 읽힘(빠른 소모 캡처로 대비 확인) |
 | 항상 위 | Discord 를 `HWND_TOP` 으로 올린 뒤에도 Z 순서 위젯 2 < Discord 5 |
 | 포커스 | 창을 띄워도 `0x70394 → 0x70394` 유지 |
-| 우클릭 메뉴 | WinUI MenuFlyout 열림과 단일 서비스 창 렌더링 확인. 시스템 트레이 아이콘은 등록하지 않음 |
+| 우클릭 메뉴 | WinUI MenuFlyout 열림과 서비스 설정 창 렌더링 확인 |
 | 아크릴 | `DesktopAcrylicController.IsSupported()=True 적용=True` |
 | 테마 | 시스템 다크 상태에서 `--theme=light` 강제 → 흰 배경. 보조 텍스트 토큰 픽셀 검증 `#61667A` 2905px |
 
@@ -238,7 +251,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 **제약**
 
-1. **Codex와 Claude 사용량 조회는 공식 공개 API가 아닙니다.** 각 클라이언트의 비공개 엔드포인트와 로그인 파일을 읽습니다. 응답이나 접근 정책이 바뀌면 해당 배터리에 `조회 오류`가 뜹니다. 자격증명은 읽기만 하며 갱신·로그 기록하지 않습니다.
+1. **로그인과 사용량 조회의 호환성은 제공자의 변경에 영향을 받습니다.** Codex는 공식 App Server의 계정 조회를 우선 사용하고, 실패하면 기존 로그인 파일과 HTTP 경로를 사용합니다. Claude 웹/OAuth와 Command Code `/alpha` 경로는 공개 API 계약이 보장되지 않습니다. 오류 원인과 해결 방법은 프로바이더 설정에서 확인하세요. 기존 로그인 파일은 읽기만 하고, Quotra의 Claude 로그인은 Windows 자격 증명 보관함에 저장합니다. 토큰은 로그에 기록하지 않습니다.
 2. 예측은 **앱이 켜져 있는 동안의 표본**만 씁니다. 꺼져 있던 구간은 비어 있고, 다시 켜면 그 구멍은 예측에서 잘라냅니다(메우지는 않습니다).
 3. 리셋 시각은 소스가 주는 `ResetsAt` 을 씁니다 — 소스가 안 주면 `리셋 정보 없음` 이라고 표시합니다(추측하지 않습니다).
 4. 프로바이더가 6곳을 넘으면 바가 화면 폭을 넘습니다(가로 배치라 줄바꿈 없음).
@@ -248,7 +261,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 1. Codex `credits`/`rate_limit_reset_credits`(리셋권 3장) 같은 부가 정보를 호버에 한 줄 더
 2. 임계치 도달 시 Windows 알림
-3. 시작 프로그램 등록(레지스트리 `Run`)과 자동 업데이트
+3. 업데이트 알림 또는 자동 업데이트
 4. 상세 설정 화면(지금은 우클릭 메뉴 + JSON 파일)
 5. 프로바이더가 많아질 때 페이지 전환/스크롤
 

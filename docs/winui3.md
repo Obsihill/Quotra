@@ -20,7 +20,7 @@ Win32 프레임이 콘텐츠 높이를 깎던 문제를 해결했습니다.
 `tools/verify-fluent.ps1`은 별도 카탈로그·표본을 생성하고 기존 예측/파서 검사와 UI 시나리오를 실행합니다.
 `--capture=`는 실제 XAML의 PNG를 내보내며 투명 표면 상태와 셀/게이지 경계도 확인합니다.
 캡처에는 DWM 모서리/그림자가 포함되지 않습니다. 데스크톱 자동화에서 도구 창이 검색되지 않아
-실제 트레이 클릭·전역 단축키·고대비 OS 전환은 이번 검증에서 재현하지 못했습니다.
+실제 트레이 클릭·전역 단축키·고대비 OS 전환은 이번 검증에서 재현하지 못했습니다. 공개 릴리스 워크플로는 일반 사용자 권한에서 트레이 등록과 설치·업그레이드·제거를 별도로 확인합니다.
 빌드 경고/오류 0개, 예측 27/27, 파서 26/26, UI 8종(다크·라이트·호버·단일·빈 상태·미연동·항상 위 해제·팝업)이 통과했습니다.
 팝업은 실제 커서를 건드리지 않고 기존 커서 입력 하네스로 상단 흔들기 → 진입 → 이탈 → 숨김을 검증합니다.
 
@@ -175,7 +175,7 @@ sample: 표본 0개 · 연동된 값 없음(미연동)                          
 
 ```powershell
 dotnet build src\Quotra.WinUI\Quotra.WinUI.csproj -c Release
-src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64\QuotraWinUI.exe
+src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64\QuotraWinUI.exe
 ```
 
 - 자기 포함 배포(`WindowsAppSDKSelfContained=true`, `WindowsPackageType=None`) — **Windows App Runtime 설치가 필요 없습니다.**
@@ -205,7 +205,7 @@ src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64\QuotraWinUI
 
 ```powershell
 $repo = (Get-Location).Path
-$exe = 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64\QuotraWinUI.exe'
+$exe = 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64\QuotraWinUI.exe'
 
 # 실연동 캡처(이전 캡처 시점의 기본 카탈로그 = Codex 1곳)
 Start-Process $exe -WorkingDirectory (Split-Path $exe) -ArgumentList '--refresh=5000','--sample-interval=1000',
@@ -309,10 +309,7 @@ hover: Claude → 남음 77% · 리셋 6일 23시간            ← 셀에 올�
 1. **WinUI 3 창은 GDI 화면 캡처에 안 잡힙니다.** `WS_EX_NOREDIRECTIONBITMAP` 로 만들어져서 `CopyFromScreen`/`BitBlt` 에는 창 **뒤에 있는 내용**이 찍힙니다("위젯이 안 그려진다"고 오진하기 딱 좋습니다). `tools/window-shot.ps1` 처럼 `PrintWindow(PW_RENDERFULLCONTENT)` 로 창 자신을 그려야 합니다.
 2. **XAML 로드 실패는 스토우드 예외(`0xc000027b`)로 죽어서 메시지가 사라집니다.** `try/catch` 로도 안 잡히는 fail-fast 가 있어, `App` 생성자에서 단계별 로그를 남기고 `Log` 는 stdout 으로도 내보내게 했습니다.
 3. **로그 폴더 권한이 막히면 로그가 "아무것도 안 남는" 형태로 나타납니다.** `%LOCALAPPDATA%\Quotra` 가 읽기 전용 토큰으로 실행될 때 `UnauthorizedAccessException` 이 조용히 삼켜져 "관리 코드가 실행되지 않았다"로 오진했습니다. `Log` 는 `%TEMP%` 로 폴백하고, 실패를 다시 로깅하지 않습니다(첫 시도에서 무한 재귀 → 스택 오버플로를 겪었습니다).
-4. **Low 무결성 라벨이 붙은 폴더에서 실행하면 트레이 아이콘이 등록되지 않습니다.** `Shell_NotifyIcon` 이 `GetLastError` 0 으로 조용히 실패합니다. exe 폴더에 상속 가능한 Medium 라벨을 주면 해결됩니다.
-   ```powershell
-   icacls src\Quotra.WinUI\bin /setintegritylevel "(OI)(CI)Medium" /T /C /Q
-   ```
+4. **Low 무결성 환경에서는 트레이 아이콘 등록이 거부될 수 있습니다.** 현재 Codex 실행 환경에서는 실행 파일이 Low 무결성이고 `Shell_NotifyIcon` 이 Win32 오류 5(액세스 거부)로 실패했습니다. 공개 릴리스 워크플로는 일반 사용자 권한의 Windows 러너에서 트레이 등록을 통과해야 게시 단계로 진행합니다.
 5. **XAML `CornerRadius` 는 DWM 라운드와 맞춰야 합니다.** DWM `DWMWCP_ROUND` 는 8px 이므로 패널도 `CornerRadius=8` 로 두었습니다. 다르면 유리가 모서리 밖으로 번집니다.
 
 ## 이식성 메모

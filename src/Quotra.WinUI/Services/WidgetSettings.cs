@@ -36,6 +36,9 @@ public sealed class WidgetSettings
     /// <summary>창 뒤에 Windows Desktop Acrylic 재질을 표시한다.</summary>
     public bool Acrylic { get; set; } = true;
 
+    /// <summary>Windows 로그인 시 앱을 시작한다.</summary>
+    public bool RunAtStartup { get; set; }
+
     /// <summary>위젯 모서리 반경(px).</summary>
     public int CornerRadius { get; set; } = 18;
 

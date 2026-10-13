@@ -207,17 +207,12 @@ public sealed class UsageService
         provider.Error = null;
         provider.UpdatedAt = now;
 
-        if (snapshot.Primary is { } primary)
-        {
-            provider.Primary = Math.Clamp(primary.Used, 0, 1);
-            provider.PrimaryResetsAt = primary.ResetsAt;
-        }
-
-        if (snapshot.Secondary is { } secondary)
-        {
-            provider.Secondary = Math.Clamp(secondary.Used, 0, 1);
-            provider.SecondaryResetsAt = secondary.ResetsAt;
-        }
+        provider.Primary = snapshot.Primary is { } primary ? Math.Clamp(primary.Used, 0, 1) : null;
+        provider.PrimaryResetsAt = snapshot.Primary?.ResetsAt;
+        provider.Secondary = snapshot.Secondary is { } secondary ? Math.Clamp(secondary.Used, 0, 1) : null;
+        provider.SecondaryResetsAt = snapshot.Secondary?.ResetsAt;
+        if (snapshot.PrimaryLabel is not null) provider.PrimaryLabel = snapshot.PrimaryLabel;
+        if (snapshot.SecondaryLabel is not null) provider.SecondaryLabel = snapshot.SecondaryLabel;
 
         if (!string.IsNullOrWhiteSpace(snapshot.Plan))
         {
@@ -229,10 +224,7 @@ public sealed class UsageService
             provider.Note = snapshot.Note;
         }
 
-        if (!string.IsNullOrWhiteSpace(snapshot.HistoryKey))
-        {
-            provider.HistoryKey = snapshot.HistoryKey;
-        }
+        provider.HistoryKey = snapshot.HistoryKey;
     }
 
     // ------------------------------------------------------------ 카탈로그 읽기

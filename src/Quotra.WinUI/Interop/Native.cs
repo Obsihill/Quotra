@@ -195,6 +195,12 @@ internal static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr LoadIconW(IntPtr instance, IntPtr iconName);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr LoadImageW(IntPtr instance, string name, uint type, int width, int height, uint flags);
+
+    public const uint IMAGE_ICON = 1;
+    public const uint LR_LOADFROMFILE = 0x0010;
+
     // ---------------------------------------------------------------- dwmapi
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -204,7 +210,7 @@ internal static class Native
     public static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
     // ---------------------------------------------------------------- shell32
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern bool Shell_NotifyIconW(uint message, ref NOTIFYICONDATAW data);
 
     [StructLayout(LayoutKind.Sequential)]

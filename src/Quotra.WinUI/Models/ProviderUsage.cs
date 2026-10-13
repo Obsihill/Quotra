@@ -97,9 +97,15 @@ public sealed class ProviderUsage
     [JsonIgnore]
     public string RemainingSessionText => Format(RemainingSession);
 
-    /// <summary>미연동 → 조회 오류 → 값 순으로 상태를 한 줄로.</summary>
+    /// <summary>연결·조회 상태를 사용자에게 보여준다.</summary>
     [JsonIgnore]
-    public string StatusText => Error is not null ? "조회 오류" : !IsLinked ? "미연동" : "값 없음";
+    public string StatusText => Error is not null
+        ? "조회 오류"
+        : !IsLinked
+            ? "미연동"
+            : HasAnyValue
+                ? "연결됨"
+                : "조회 중";
 
     /// <summary>"3일 4시간 후 리셋" 같은 문구. 리셋 시각을 모르면 안내 문구.</summary>
     [JsonIgnore]
