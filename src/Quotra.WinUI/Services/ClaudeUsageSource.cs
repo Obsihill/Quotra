@@ -10,7 +10,7 @@ namespace Quotra.WinUI.Services;
 
 /// <summary>Claude Desktop session, an explicit Quotra sign-in, or Claude Code OAuth.</summary>
 [UsageSource("claude")]
-public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostics
+public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostics, IUsageSelfTest
 {
     private const string UsageEndpoint = "https://api.anthropic.com/api/oauth/usage";
     private const string Resource = "Quotra.Claude";
@@ -19,10 +19,19 @@ public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostic
         { Timeout = TimeSpan.FromSeconds(10) };
     private string? _authPath;
     private string _endpoint = UsageEndpoint;
+    private readonly HttpClient _oauthHttp = Http;
+    private readonly ClaudeOAuthClient _oauth = new(Http, Log.Write);
 
     public ClaudeUsageSource(string? authPath = null) => _authPath = authPath;
+    internal ClaudeUsageSource(HttpClient http)
+    {
+        _oauthHttp = http;
+        _oauth = new ClaudeOAuthClient(http, Log.Write);
+    }
     public string DisplayName => "Claude (Anthropic 구독 한도)";
     public string ShortName => "Claude";
+    public string SelfTestName => "Claude OAuth 갱신·주간 한도";
+    public bool RunSelfTest() => ClaudeOAuthSelfTest.Run();
     public Uri LoginUri => new("https://claude.ai/login");
     public string SessionCookieName => "sessionKey";
     public string? OrganizationCookieName => "lastActiveOrg";
@@ -117,7 +126,7 @@ public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostic
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "https://claude.ai" + path);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("User-Agent", "Quotra/1.0.1");
+        request.Headers.TryAddWithoutValidation("User-Agent", $"Quotra/{ProductVersion.Value}");
         request.Headers.TryAddWithoutValidation("Referer", "https://claude.ai/settings/usage");
         request.Headers.TryAddWithoutValidation("Cookie", "sessionKey=" + session);
         using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -147,17 +156,40 @@ public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostic
 
     private static string? NormalizeOrganizationId(string? id) => Guid.TryParse(id, out Guid parsed) ? parsed.ToString() : null;
 
-    private async Task<ProviderSnapshot> FetchOAuthAsync(string path, CancellationToken cancellationToken)
+    internal async Task<ProviderSnapshot> FetchOAuthAsync(string path, CancellationToken cancellationToken)
     {
-        ClaudeCredential credential = await ReadCredentialAsync(path, cancellationToken).ConfigureAwait(false);
+        // Explicit diagnostic overrides must never rotate a real login or send a test token to OAuth.
+        if (_endpoint != UsageEndpoint && (_authPath is null
+            || string.Equals(Path.GetFullPath(path), Path.GetFullPath(DefaultAuthPath), StringComparison.OrdinalIgnoreCase)
+            || !Uri.TryCreate(_endpoint, UriKind.Absolute, out Uri? diagnosticUri) || !diagnosticUri.IsLoopback
+            || diagnosticUri.Scheme is not ("http" or "https")))
+            throw new InvalidOperationException("Claude 진단 URL은 별도의 테스트 로그인 파일과 로컬 루프백 주소를 함께 지정해야 합니다.");
+        bool allowRefresh = _authPath is null && _endpoint == UsageEndpoint;
+        ClaudeOAuthCredential credential = await _oauth.GetAsync(path, cancellationToken, allowRefresh: allowRefresh).ConfigureAwait(false);
+        using HttpResponseMessage first = await GetOAuthUsageAsync(credential.AccessToken, cancellationToken).ConfigureAwait(false);
+        if (first.StatusCode == HttpStatusCode.Unauthorized && !credential.Refreshed && allowRefresh)
+        {
+            credential = await _oauth.GetAsync(path, cancellationToken, credential.AccessToken).ConfigureAwait(false);
+            using HttpResponseMessage retry = await GetOAuthUsageAsync(credential.AccessToken, cancellationToken).ConfigureAwait(false);
+            return await ReadOAuthUsageAsync(retry, credential, cancellationToken).ConfigureAwait(false);
+        }
+        return await ReadOAuthUsageAsync(first, credential, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<HttpResponseMessage> GetOAuthUsageAsync(string accessToken, CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get, _endpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.AccessToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.TryAddWithoutValidation("anthropic-beta", "oauth-2025-04-20");
-        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return await _oauthHttp.SendAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<ProviderSnapshot> ReadOAuthUsageAsync(HttpResponseMessage response, ClaudeOAuthCredential credential, CancellationToken cancellationToken)
+    {
         EnsureSuccess(response, web: false);
         using JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-        return ParseUsage(document.RootElement, credential.Plan) with { Note = "Claude Code 로그인으로 조회" };
+        return ParseUsage(document.RootElement, PlanLabel(credential.Plan)) with { Note = "Claude Code 로그인으로 조회" };
     }
 
     private static void EnsureSuccess(HttpResponseMessage response, bool web)
@@ -169,29 +201,6 @@ public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostic
                 : $"Claude Code 로그인이 거부되었습니다(HTTP {code}). Claude Code 로그인을 갱신하거나 설정에서 Claude 로그인을 사용하세요.");
         if (code == 429) throw new InvalidOperationException("Claude 조회가 일시적으로 제한되었습니다. 다음 자동 갱신 때 다시 시도합니다.");
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Claude 사용량 조회에 실패했습니다(HTTP {code}). 잠시 후 다시 시도하세요.");
-    }
-
-    private static async Task<ClaudeCredential> ReadCredentialAsync(string path, CancellationToken cancellationToken)
-    {
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false));
-            if (!document.RootElement.TryGetProperty("claudeAiOauth", out JsonElement oauth) || oauth.ValueKind != JsonValueKind.Object
-                || !oauth.TryGetProperty("accessToken", out JsonElement token) || token.ValueKind != JsonValueKind.String
-                || string.IsNullOrWhiteSpace(token.GetString()))
-                throw new InvalidOperationException("Claude Code 구독 OAuth 토큰이 없습니다. 설정에서 Claude 로그인을 사용하세요.");
-            if (oauth.TryGetProperty("expiresAt", out JsonElement expires) && expires.ValueKind == JsonValueKind.Number && expires.TryGetInt64(out long milliseconds)
-                && milliseconds > 0 && milliseconds <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
-                throw new InvalidOperationException("Claude Code 로그인이 만료되었습니다. Claude Code를 실행해 갱신하거나 설정에서 Claude 로그인을 사용하세요.");
-            string? plan = oauth.TryGetProperty("subscriptionType", out JsonElement subscription) && subscription.ValueKind == JsonValueKind.String
-                ? subscription.GetString() : null;
-            return new ClaudeCredential(token.GetString()!, PlanLabel(plan));
-        }
-        catch (FileNotFoundException) { throw new InvalidOperationException("Claude Code 로그인 파일이 없습니다. 설정에서 Claude 로그인을 사용하세요."); }
-        catch (DirectoryNotFoundException) { throw new InvalidOperationException("Claude Code 로그인 폴더가 없습니다. CLAUDE_CONFIG_DIR 경로를 확인하거나 설정에서 로그인하세요."); }
-        catch (JsonException) { throw new InvalidOperationException("Claude Code 로그인 파일 형식이 올바르지 않습니다. 다시 로그인하세요."); }
-        catch (IOException) { throw new InvalidOperationException("Claude Code 로그인 파일을 읽을 수 없습니다."); }
-        catch (UnauthorizedAccessException) { throw new InvalidOperationException("Claude Code 로그인 파일에 접근할 권한이 없습니다."); }
     }
 
     internal static ProviderSnapshot ParseUsage(JsonElement root, string? plan)
@@ -220,6 +229,5 @@ public sealed class ClaudeUsageSource : IWebSessionUsageSource, IUsageDiagnostic
     {
         "pro" => "Claude Pro", "max" => "Claude Max", "free" => "Claude Free", _ => null,
     };
-    private sealed record ClaudeCredential(string AccessToken, string? Plan);
     private sealed record ClaudeSession(string Session, string? OrganizationId);
 }

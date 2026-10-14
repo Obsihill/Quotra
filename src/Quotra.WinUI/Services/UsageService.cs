@@ -48,6 +48,8 @@ public sealed class UsageService
         {
             provider.Primary = provider.Secondary = null;
             provider.PrimaryResetsAt = provider.SecondaryResetsAt = null;
+            provider.Plan = provider.CatalogPlan;
+            provider.Note = provider.CatalogNote;
             provider.UpdatedAt = null;
             provider.Error = null;
         }
@@ -94,6 +96,8 @@ public sealed class UsageService
         foreach (ProviderUsage provider in catalog.Where(p => p.Enabled))
         {
             provider.IsLinked = _sources.ContainsKey(provider.Id);
+            provider.CatalogPlan = provider.Plan;
+            provider.CatalogNote = provider.Note;
             _providers.Add(provider);
         }
     }
@@ -214,15 +218,10 @@ public sealed class UsageService
         if (snapshot.PrimaryLabel is not null) provider.PrimaryLabel = snapshot.PrimaryLabel;
         if (snapshot.SecondaryLabel is not null) provider.SecondaryLabel = snapshot.SecondaryLabel;
 
-        if (!string.IsNullOrWhiteSpace(snapshot.Plan))
-        {
-            provider.Plan = snapshot.Plan;
-        }
-
-        if (!string.IsNullOrWhiteSpace(snapshot.Note))
-        {
-            provider.Note = snapshot.Note;
-        }
+        // 플랜·설명은 조회 결과가 알려주면 그 값, 아니면 카탈로그 기본값으로 되돌린다 —
+        // 이전 조회의 문구가 남아 사실과 달라지는 것을 막는다(예: API 키를 지운 뒤 "월간 잔여 ..%" 잔존).
+        provider.Plan = string.IsNullOrWhiteSpace(snapshot.Plan) ? provider.CatalogPlan : snapshot.Plan;
+        provider.Note = string.IsNullOrWhiteSpace(snapshot.Note) ? provider.CatalogNote : snapshot.Note;
 
         provider.HistoryKey = snapshot.HistoryKey;
     }

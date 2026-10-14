@@ -29,6 +29,12 @@ public sealed class CommandCodeUsageSource : IUsageSource, IUsageDiagnostics
 
     public async Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
     {
+        // 진단 재정의는 로컬 루프백만 — 실계정 토큰이 임의 호스트로 실려 나가지 않게 한다.
+        if (!string.Equals(_apiBaseUrl, DefaultApiBaseUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            DiagnosticGuard.EnsureLoopback(_apiBaseUrl, "Command Code");
+        }
+
         string apiKey = await ReadApiKeyAsync(cancellationToken).ConfigureAwait(false);
 
         // Command Code CLI resolves the active account namespace before requesting its usage.

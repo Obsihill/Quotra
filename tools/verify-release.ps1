@@ -28,7 +28,7 @@ function Invoke-QuotraProcess {
     }
 }
 
-foreach ($argument in @('--forecast-test', '--provider-test=codex')) {
+foreach ($argument in @('--forecast-test', '--provider-test=codex', '--provider-test=claude')) {
     Write-Host "Running $argument"
     Invoke-QuotraProcess -ArgumentList @($argument) -TimeoutSeconds 90
 }

@@ -75,10 +75,10 @@ UI를 검증할 때는 `tools\verify-fluent.ps1`을 실행합니다. 기존 Rele
 
 서명 준비와 태그 배포 절차는 [docs/releasing.md](docs/releasing.md)를 참고하세요.
 
-- 버전은 `v주.부.수`로 올립니다. 현재 버전은 `1.0.1`이며, 버그 수정은 패치, 기능 추가는 부 버전, 호환성을 깨는 변경은 주 버전을 올립니다.
+- 버전은 `v주.부.수`로 올립니다. 현재 버전은 `1.0.2`이며, 버그 수정은 패치, 기능 추가는 부 버전, 호환성을 깨는 변경은 주 버전을 올립니다.
 - GitHub Releases에서 Windows 11 x64용 `Quotra-Setup-버전-win-x64.exe`를 받아 설치합니다. 설치 없이 실행하려면 포터블 ZIP을 폴더째 압축 해제한 뒤 `QuotraWinUI.exe`를 실행합니다.
 - 설치 프로그램은 관리자 권한 없이 설치하고 시작 메뉴 바로가기를 만듭니다. 업데이트는 새 설치 파일을 기존 설치 위에 실행합니다. 설정과 사용량 이력은 제거 후에도 기본 보존됩니다.
-- 현재 `1.0.1` 설치 파일과 앱에는 코드 서명이 적용되지 않았습니다. Windows에서 게시자 확인 또는 SmartScreen 경고가 표시될 수 있습니다. 다운로드한 파일은 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다. 서명 인증서를 준비한 뒤 자동 릴리스에서 서명을 적용합니다.
+- 현재 공개된 설치 파일과 앱에는 코드 서명이 적용되지 않았습니다. Windows에서 게시자 확인 또는 SmartScreen 경고가 표시될 수 있습니다. 다운로드한 파일은 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다. 서명 인증서를 준비한 뒤 자동 릴리스에서 서명을 적용합니다.
 - 각 프로바이더의 연결 상태와 마지막 성공 조회는 설정 창에서 확인할 수 있습니다. 예측은 사용량 표본을 10분 이상 수집한 뒤 나타납니다.
 
 배포 스크립트와 설치 프로그램 정의는 `tools\publish-release.ps1`, `tools\package-release.ps1`, `packaging\windows\Quotra.iss`에 있습니다. 릴리스 자동화 전에 GitHub 저장소와 `QUOTRA_SIGNING_PFX_BASE64`, `QUOTRA_SIGNING_PASSWORD` Actions 비밀 값을 설정해야 합니다.
@@ -104,7 +104,7 @@ UI를 검증할 때는 `tools\verify-fluent.ps1`을 실행합니다. 기존 Rele
 | `--forecast-test` | 예측 엔진 자체 점검만 하고 종료(실패 시 종료 코드 1) |
 | `--provider-test=id` | 프로바이더 소스 자체 점검만 하고 종료(실패 시 종료 코드 1) |
 | `--provider-once=id` | 프로바이더를 1회 조회하고 결과만 로그로 남긴 뒤 종료 |
-| `--provider-url=id=url` · `--provider-file=id=path` | 조회 주소·자격증명 경로 강제(실패 경로 검증용) |
+| `--provider-url=id=url` · `--provider-file=id=path` | 조회 주소·자격증명 경로 강제(실패 경로 검증용 · 진단 주소는 로컬 루프백만) |
 | `--codex-parse=path` | 저장해 둔 응답 파일로 파서만 검증(네트워크 없음) |
 | `--exit-after=ms` | 지정 시간 뒤 스스로 종료 |
 | `--capture=path` | 3초 뒤 XAML 화면을 PNG로 저장하고 배경 투명 상태·콘텐츠 경계를 확인(Desktop Acrylic 자체는 창 캡처에만 보임) |
@@ -117,7 +117,7 @@ $repo = (Get-Location).Path
 # Codex 실연동 1회 조회 — 값·엔드포인트·실패 사유가 로그에 남는다
 Start-Process $exe -WorkingDirectory $out -ArgumentList '--provider-once=codex' -Wait -RedirectStandardOutput co.log
 
-# 파서만 점검(창을 만들지 않음, 26케이스) · 예측 엔진 점검(27케이스)
+# 파서만 점검(창을 만들지 않음, 32케이스) · 예측 엔진 점검(27케이스)
 Start-Process $exe -WorkingDirectory $out -ArgumentList '--provider-test=codex' -Wait -RedirectStandardOutput ct.log
 Start-Process $exe -WorkingDirectory $out -ArgumentList '--forecast-test' -Wait -RedirectStandardOutput ft.log
 
@@ -143,7 +143,6 @@ src/Quotra.WinUI/               주력 앱 (WinUI 3)
 ├─ Views/WidgetWindow.xaml     가로 배터리 바 · 셀별 호버 · 창 크롬 · 테마
 ├─ Themes/Theme.xaml            ThemeDictionaries(Dark/Light/HighContrast) + 컨트롤 스타일
 ├─ Themes/Palette.cs            테마 무관 색(브랜드·등급) 단일 출처
-├─ Themes/ColorMath.cs          Mix/Lighten/Darken/WithAlpha
 ├─ Models/ProviderUsage.cs      테마 의존 없는 모델(값이 없으면 null — 0 과 구분)
 ├─ Services/                    UsageService(카탈로그+소스) · IUsageSource(확장 지점) · UsageSampler(10분 표본)
 │                               · CodexUsageSource · ClaudeUsageSource · CommandCodeUsageSource · OpenCodeUsageSource · SimulatedUsageSource(개발용 예시)
@@ -156,12 +155,12 @@ src/Quotra.Shared/Forecast/     예측 엔진 — UI·색 타입에 의존하지
 ├─ UsagePoint.cs                시각 + 사용률 표본, 한도 창(Primary/Secondary)
 ├─ UsageHistory.cs              시리즈별 표본(7일 보관) + JSON 영속화
 ├─ DepletionForecast.cs         리셋 절단 → 최소제곱 기울기 → 고갈 시각/상태 + 문구
-└─ ForecastSelfTest.cs          합성 시계열 19케이스 자체 점검
+└─ ForecastSelfTest.cs          합성 시계열 27케이스 자체 점검
 
 src/Quotra.Shared/Providers/    Codex 파서·클라이언트 — 네트워크·파싱도 UI 타입을 쓰지 않는다
 ├─ CodexUsageParser.cs          이름 대신 "창 길이"로 주간/세션을 가르는 파서
 ├─ CodexUsageClient.cs          auth.json 읽기(읽기만) + 후보 경로 폴백 + 실패 분류
-└─ CodexSelfTest.cs             합성 응답 26케이스 자체 점검
+└─ CodexSelfTest.cs             합성 응답 32케이스 자체 점검
 
 tools/                          검증 도구와 fixtures/ (verify-fluent.ps1, window-shot.ps1, image-diff.ps1)
 tools/fixtures/                 검증용 응답·카탈로그·이력 JSON
@@ -219,7 +218,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | 항목 | 실측 증거 |
 | --- | --- |
 | 엔진 자체 점검 | `--forecast-test` **27/27 통과**, 종료 코드 0(표본 1개/2개 경계 · 1분 폭 무시 · 0% 로 뭉개지지 않는 문구 · 재시작 표본 혼입 포함) |
-| Codex 파서 점검 | `--provider-test=codex` **27/27 통과**, 종료 코드 0(실측 응답 형태·창 두 개·0~1 스케일·에포크 리셋·이름 변경·실패 2종) |
+| Codex 파서 점검 | `--provider-test=codex` **32/32 통과**, 종료 코드 0(실측 응답 형태·창 두 개·0~1 스케일·에포크 리셋·이름 변경·실패 2종) |
 | Codex 실연동 | `--provider-once=codex` → `status=Ok endpoint=…/backend-api/wham/usage` · `windows=[10080m:10%] plan=prolite` · `/api/codex/usage` 는 **403** 이라 폴백이 실제로 쓰임 |
 | Codex 실패 경로 | 도달 불가 호스트 → `NetworkError`, 없는 자격증명 → `NoCredential`, 깨진 JSON → `SchemaChanged`(전부 사유가 로그에 남고 프로세스는 정상 종료) |
 | 확장 지점 | 테스트 카탈로그 3곳 + 개발용 소스(시간당 120%) → 측정 **20%/10분**(=120÷6) · 셀마다 고갈 시각 산출 |
@@ -245,7 +244,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 **제약**
 
-1. **로그인과 사용량 조회의 호환성은 제공자의 변경에 영향을 받습니다.** Codex는 공식 App Server의 계정 조회를 우선 사용하고, 실패하면 기존 로그인 파일과 HTTP 경로를 사용합니다. Claude 웹/OAuth와 Command Code `/alpha` 경로는 공개 API 계약이 보장되지 않습니다. 오류 원인과 해결 방법은 프로바이더 설정에서 확인하세요. 기존 로그인 파일은 읽기만 하고, Quotra의 Claude 로그인은 Windows 자격 증명 보관함에 저장합니다. 토큰은 로그에 기록하지 않습니다.
+1. **로그인과 사용량 조회의 호환성은 제공자의 변경에 영향을 받습니다.** Codex는 공식 App Server의 계정 조회를 우선 사용하고, 실패하면 기존 로그인 파일과 HTTP 경로를 사용합니다. Claude 웹/OAuth와 Command Code `/alpha` 경로는 공개 API 계약이 보장되지 않습니다. 오류 원인과 해결 방법은 프로바이더 설정에서 확인하세요. Claude Code 로그인은 저장된 갱신 토큰으로 자동 갱신하고 새 토큰을 기존 로그인 파일에 저장합니다. 갱신까지 거부된 경우 재로그인이 필요합니다. Quotra의 Claude 웹 로그인은 Windows 자격 증명 보관함에 저장하며, 토큰은 로그에 기록하지 않습니다.
 2. 예측은 **앱이 켜져 있는 동안의 표본**만 씁니다. 꺼져 있던 구간은 비어 있고, 다시 켜면 그 구멍은 예측에서 잘라냅니다(메우지는 않습니다).
 3. 리셋 시각은 소스가 주는 `ResetsAt` 을 씁니다 — 소스가 안 주면 `리셋 정보 없음` 이라고 표시합니다(추측하지 않습니다).
 4. 프로바이더가 6곳을 넘으면 바가 화면 폭을 넘습니다(가로 배치라 줄바꿈 없음).

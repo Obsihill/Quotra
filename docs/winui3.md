@@ -21,7 +21,7 @@ Win32 프레임이 콘텐츠 높이를 깎던 문제를 해결했습니다.
 `--capture=`는 실제 XAML의 PNG를 내보내며 투명 표면 상태와 셀/게이지 경계도 확인합니다.
 캡처에는 DWM 모서리/그림자가 포함되지 않습니다. 데스크톱 자동화에서 도구 창이 검색되지 않아
 실제 트레이 클릭·전역 단축키·고대비 OS 전환은 이번 검증에서 재현하지 못했습니다. 공개 릴리스 워크플로는 일반 사용자 권한에서 트레이 등록과 설치·업그레이드·제거를 별도로 확인합니다.
-빌드 경고/오류 0개, 예측 27/27, 파서 26/26, UI 8종(다크·라이트·호버·단일·빈 상태·미연동·항상 위 해제·팝업)이 통과했습니다.
+빌드 경고/오류 0개, 예측 27/27, 파서 32/32, UI 8종(다크·라이트·호버·단일·빈 상태·미연동·항상 위 해제·팝업)이 통과했습니다.
 팝업은 실제 커서를 건드리지 않고 기존 커서 입력 하네스로 상단 흔들기 → 진입 → 이탈 → 숨김을 검증합니다.
 
 ![다크](fluent-dark.png)
@@ -42,7 +42,7 @@ WinUI 3 로 다음 5가지를 구현하고, 여기에 소모 추적/고갈 예�
 | **Hover 로 값 공개** — 퍼센테이지·초기화까지 남은 시간 | 120ms 커서 폴링 → 셀 히트테스트(`TransformToVisual`) → 그 셀 배터리 안 문구만 교체(창 크기·배터리 높이 고정) | 로그 `hover: Claude → 남음 77% · 리셋 6일 23시간`, 창은 `702×72` 그대로. 벗어나면 `hover: 없음` |
 | **다크/라이트 테마** — Windows 테마에 맞춤 | `ResourceDictionary.ThemeDictionaries` 3종 + 루트 `RequestedTheme` 런타임 전환, 시스템 감지(`AppsUseLightTheme`) | 시스템은 다크인 상태에서 `--theme=light` 로 강제 → 흰 배경/어두운 글자. 토큰 픽셀 검증: 새 `#61667A` **2905px** vs 이전 `#7B8090` 678px |
 | **소모량 10분 추적 + 고갈 예측** | 10분마다 표본을 남기고, 최근 3시간의 최소제곱 기울기로 소모 속도와 고갈 시각을 낸다 | 자체 점검 **27/27**, 개발용 소스 120%/시간 → 측정 **20%/10분**(=120÷6, 오차 없음). 재시작 직후에도 저장된 이력으로 즉시 예측(2번째 표본부터 숫자) |
-| **Codex 실연동** — 실제 남은 한도 | `src/Quotra.Shared/Providers/` 파서·클라이언트 + `Services/CodexUsageSource.cs` 어댑터 | `--provider-once=codex` → `status=Ok endpoint=…/backend-api/wham/usage` · `windows=[10080m:10%] plan=prolite` · 파서 점검 **26/26**. 실패 3종(무자격·네트워크·스키마)도 사유가 남는다 |
+| **Codex 실연동** — 실제 남은 한도 | `src/Quotra.Shared/Providers/` 파서·클라이언트 + `Services/CodexUsageSource.cs` 어댑터 | `--provider-once=codex` → `status=Ok endpoint=…/backend-api/wham/usage` · `windows=[10080m:10%] plan=prolite` · 파서 점검 **32/32**. 실패 3종(무자격·네트워크·스키마)도 사유가 남는다 |
 | **Claude 실연동** — 실제 구독 한도 | `Services/ClaudeUsageSource.cs` 에서 Claude Code OAuth 토큰을 읽고 5시간·주간 창 조회 | 기본 갱신 간격 60초. 토큰·응답 원문은 로그에 남기지 않음 |
 | **확장 지점** (`IUsageSource`) | 카탈로그(무엇을 보일지)와 소스(얼마나 썼는지)를 분리. 소스가 없으면 `미연동` | 기본 카탈로그(ChatGPT·Claude 2곳)로 실값 수신 · 테스트 카탈로그 3곳 + 개발용 소스 → 배터리 채움·셀마다 고갈 시각 |
 
@@ -111,10 +111,10 @@ Codex 연동이 없는 상태에서 가짜 ChatGPT 수치를 띄우는 것은 �
 | `UsagePoint.cs` | 시각 + 사용률 표본 한 점, 한도 창 구분(Primary/Secondary) |
 | `UsageHistory.cs` | 시리즈별 표본 저장(7일 보관) + JSON 영속화(임시 파일 교체로 깨짐 방지) |
 | `DepletionForecast.cs` | 기울기·고갈 시각 계산과 문구화(`ForecastText`) |
-| `ForecastSelfTest.cs` | 합성 시계열 19케이스 자체 점검 |
+| `ForecastSelfTest.cs` | 합성 시계열 27케이스 자체 점검 |
 | `Providers/CodexUsageParser.cs` | Codex 응답 파서 — 이름 대신 창 길이로 주간/세션을 가른다 |
 | `Providers/CodexUsageClient.cs` | auth.json 읽기(읽기만) + 후보 경로 폴백 + 실패 분류 |
-| `Providers/CodexSelfTest.cs` | 합성 응답 26케이스 자체 점검 |
+| `Providers/CodexSelfTest.cs` | 합성 응답 32케이스 자체 점검 |
 
 **설계 판단 네 가지**
 
@@ -153,7 +153,7 @@ sample: 표본 0개 · 연동된 값 없음(미연동)                          
 | 항목 | 결과 |
 | --- | --- |
 | 엔진 자체 점검 | **27/27 통과**(꾸준한 소모·리셋 절단·긴 공백 절단·잡음 내성·표본 1개·표본 2개부터 예측·1분 폭 무시·느린 소모 문구·소모 없음 문구·이미 소진·리셋 우선·고갈이 먼 경우·한도 회복·잡음으로 내려간 기울기·재시작 표본 혼입) |
-| Codex 파서 점검 | **27/27 통과** — 실측 응답 형태·창 두 개(순서 뒤집힘)·0~1 스케일·다른 필드명·에포크 리셋·세션만·상한·창 길이 없음·JSON 아님·이름이 바뀐 응답 |
+| Codex 파서 점검 | **32/32 통과** — 실측 응답 형태·창 두 개(순서 뒤집힘)·0~1 스케일·다른 필드명·에포크 리셋·세션만·상한·창 길이 없음·JSON 아님·이름이 바뀐 응답 |
 | Codex 실연동 | `--provider-once=codex` → `status=Ok endpoint=https://chatgpt.com/backend-api/wham/usage` · `windows=[10080m:10%] plan=prolite` · 주간 10% 사용 / 리셋 159시간 뒤 · 세션 창 없음 |
 | Codex 경로 폴백 | `/api/codex/usage` → **403** → `/backend-api/wham/usage` → **200** (폴백이 실제로 쓰인다) |
 | Codex 실패 경로 | 도달 불가 호스트 → `NetworkError` · 없는 자격증명 → `NoCredential` · 깨진 JSON → `SchemaChanged` — 셋 다 사유가 로그에 남고 종료 코드 0 |
@@ -200,7 +200,7 @@ src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64\QuotraWinUI
 | `--provider-test=id` | 프로바이더 소스 자체 점검만 하고 종료(실패 시 종료 코드 1) |
 | `--provider-once=id` | 프로바이더 1회 조회 후 결과만 로그로 남기고 종료 |
 | `--codex-parse=path` | 저장해 둔 응답으로 파서만 검증 |
-| `--provider-url=id=url` · `--provider-file=id=path` | 조회 주소·자격증명 경로 강제(실패 경로 검증용) |
+| `--provider-url=id=url` · `--provider-file=id=path` | 조회 주소·자격증명 경로 강제(실패 경로 검증용 · 진단 주소는 로컬 루프백만) |
 | `--exit-after=ms` | 지정 시간 뒤 스스로 종료(캡처 자동화) |
 
 ```powershell
@@ -244,12 +244,11 @@ src/Quotra.WinUI/
 ├─ app.manifest               PerMonitorV2, supportedOS(Win10/11)
 ├─ Data/providers.json        프로바이더 정의(기본 = ChatGPT + Claude) · providers.example.json(형식 예시)
 ├─ Log.cs                     %LOCALAPPDATA% 실패 시 %TEMP% 로 내려가는 로그 + 부팅 표식
-├─ Interop/                   Native, ScreenInfo, CursorProbe, EdgeWatcher, TrayIcon, TrayIconImage
+├─ Interop/                   Native, ScreenInfo, CursorProbe, EdgeWatcher, SystemMessageSink, ClaudeDesktopSessionReader
 ├─ Controls/BatteryGauge.xaml  가로 배터리(트랙 26dip + 왼쪽부터 채움 + 단자, 몸통 안 숫자는 두 벌을 경계에서 클립)
 ├─ Views/WidgetWindow.xaml     가로 배터리 바 · 셀별 호버 · 크롬 설정 · 테마 적용
 ├─ Themes/Theme.xaml          ThemeDictionaries(Dark/Light/HighContrast) + 컨트롤 스타일
 ├─ Themes/Palette.cs          테마 무관 색(브랜드·등급) 단일 출처
-├─ Themes/ColorMath.cs        Mix/Lighten/Darken/WithAlpha
 ├─ Models/ProviderUsage.cs    테마 의존 없는 모델(값이 없으면 null — 0 과 구분)
 └─ Services/                  UsageService(카탈로그+소스), IUsageSource(확장 지점), UsageSampler(10분 표본),
 │                             CodexUsageSource · ClaudeUsageSource(실연동 어댑터),

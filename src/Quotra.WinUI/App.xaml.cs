@@ -18,7 +18,7 @@ namespace Quotra.WinUI;
 /// <summary>
 /// 앱 수명주기.
 ///
-/// 데이터(목업) → 위젯 창 → 표본 수집/예측 → 시스템 메시지/핫키 → 엣지 흔들기 → 테마 감시 순으로 묶는다.
+/// 카탈로그·소스(데이터) → 위젯 창 → 표본 수집/예측 → 시스템 메시지/핫키 → 엣지 흔들기 → 테마 감시 순으로 묶는다.
 /// 창을 여러 개 만들지 않고 하나의 위젯 창을 재사용한다(설정·테마 상태가 한 곳에 모이도록).
 /// </summary>
 public partial class App : Application
@@ -448,9 +448,18 @@ public partial class App : Application
                 continue;
             }
 
-            IUsageSource source = CreateSource(type);
-            ApplyDiagnostics(attribute.ProviderId, source);
-            usage.Register(attribute.ProviderId, source);
+            // 소스 하나의 실수가 앱 시작을 막지 않게 여기서 격리한다 — 그 프로바이더만
+            // 미연동으로 남고 나머지는 정상 동작한다(사유는 로그에 남는다).
+            try
+            {
+                IUsageSource source = CreateSource(type);
+                ApplyDiagnostics(attribute.ProviderId, source);
+                usage.Register(attribute.ProviderId, source);
+            }
+            catch (Exception ex)
+            {
+                Log.Write(ex, $"소스 등록 실패({attribute.ProviderId}) — 이 프로바이더는 미연동으로 남깁니다");
+            }
         }
     }
 
@@ -557,6 +566,7 @@ public partial class App : Application
             : $"{name}=없음";
 
         string text = $"{Window("Primary", snapshot.Primary)} · {Window("Secondary", snapshot.Secondary)}";
+        if (snapshot.PrimaryLabel is { } label) text += $" · 주 한도={label}";
 
         if (!string.IsNullOrWhiteSpace(snapshot.Plan))
         {

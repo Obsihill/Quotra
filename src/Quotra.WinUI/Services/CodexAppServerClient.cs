@@ -41,7 +41,8 @@ internal static class CodexAppServerClient
             // Never retain or log the child process's diagnostic stream.
             drain = DrainAsync(process.StandardError, timeout.Token);
             stage = "초기화";
-            await SendAsync(process, """{"id":1,"method":"initialize","params":{"clientInfo":{"name":"quotra","title":"Quotra","version":"1.0.1"}}}""", timeout.Token).ConfigureAwait(false);
+            // "$"를 4개 쓰는 이유: 본문에 닫는 중괄호가 3개 연속으로 나오므로 보간 구분자(중괄호)가 그보다 길어야 한다(CS9007).
+            await SendAsync(process, $$$$"""{"id":1,"method":"initialize","params":{"clientInfo":{"name":"quotra","title":"Quotra","version":"{{{{ProductVersion.Value}}}}"}}}""", timeout.Token).ConfigureAwait(false);
             await ReadReplyAsync(process, 1, timeout.Token).ConfigureAwait(false);
             await SendAsync(process, """{"method":"initialized","params":{}}""", timeout.Token).ConfigureAwait(false);
             stage = "계정";

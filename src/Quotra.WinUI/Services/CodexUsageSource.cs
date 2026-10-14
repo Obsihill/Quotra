@@ -16,10 +16,11 @@ namespace Quotra.WinUI.Services;
 [UsageSource("codex")]
 public sealed class CodexUsageSource : IUsageSource, IUsageDiagnostics, IUsageSelfTest
 {
+    internal const string DefaultHost = "https://chatgpt.com";
     private string _host;
     private string? _authPath;
 
-    public CodexUsageSource(string host = "https://chatgpt.com", string? authPath = null)
+    public CodexUsageSource(string host = DefaultHost, string? authPath = null)
     {
         _host = host;
         _authPath = authPath;
@@ -56,8 +57,14 @@ public sealed class CodexUsageSource : IUsageSource, IUsageDiagnostics, IUsageSe
 
     public async Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
     {
+        // 진단 재정의는 로컬 루프백만 — 실계정 토큰이 임의 호스트로 실려 나가지 않게 한다.
+        if (!string.Equals(_host, DefaultHost, StringComparison.OrdinalIgnoreCase))
+        {
+            DiagnosticGuard.EnsureLoopback(_host, "Codex");
+        }
+
         CodexFetchResult? clientResult = null;
-        if (_authPath is null && _host == "https://chatgpt.com")
+        if (_authPath is null && string.Equals(_host, DefaultHost, StringComparison.OrdinalIgnoreCase))
             clientResult = await CodexAppServerClient.FetchAsync(cancellationToken).ConfigureAwait(false);
         CodexFetchResult result = clientResult?.Ok == true ? clientResult
             : await CodexUsageClient.FetchAsync(_host, _authPath, cancellationToken).ConfigureAwait(false);

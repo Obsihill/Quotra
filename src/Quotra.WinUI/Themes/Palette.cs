@@ -33,28 +33,10 @@ public static class Palette
     public static readonly Color Watch = Parse("#FFC86B");
     public static readonly Color Critical = Parse("#FF7A8A");
 
-    // 게이지(스피어) 본체: 위에서 빛을 받는 유리 구체
-    public static readonly Color BodyMidDark = Parse("#333745");
-    public static readonly Color BodyMidLight = Parse("#F7F9FC");
-    public static readonly Color BodyLowDark = Parse("#161820");
-    public static readonly Color BodyLowLight = Parse("#DFE4EE");
-    public static readonly Color BodyDeepDark = Parse("#0B0C11");
-    public static readonly Color BodyDeepLight = Parse("#C3CAD9");
-
-    /// <summary>유리 반사광(흰색 계열).</summary>
-    public static readonly Color SpecularHigh = Color.FromArgb(96, 255, 255, 255);
-
-    public static readonly Color SpecularLow = Color.FromArgb(0, 255, 255, 255);
-
     /// <summary>가운데 퍼센트 글자.</summary>
     public static readonly Color LabelDark = Color.FromArgb(244, 255, 255, 255);
 
     public static readonly Color LabelLight = Color.FromArgb(246, 0x1A, 0x1C, 0x22);
-
-    /// <summary>트레이 아이콘 본체.</summary>
-    public static readonly Color TrayBodyHigh = Parse("#3A3F52");
-
-    public static readonly Color TrayBodyLow = Parse("#12131A");
 
     /// <summary>사용률 → 등급. 남은 양이 아니라 '쓴 양' 기준이다(0.9 이상 소진 = Critical).</summary>
     public static UsageSeverity SeverityOf(double used)

@@ -58,8 +58,19 @@ function Invoke-Check([string]$Name, [string[]]$Arguments) {
 
 $taskForecast = Invoke-Check 'forecast' @('--forecast-test')
 $taskParser = Invoke-Check 'codex' @('--provider-test=codex')
-if ($taskForecast -notmatch '27/27' -or $taskParser -notmatch '26/26') {
-    throw 'An existing self-test did not pass.'
+$taskClaude = Invoke-Check 'claude' @('--provider-test=claude')
+
+# 케이스 수는 고정값 대신 "전부 통과(N/N)"로 본다 — 케이스가 늘어도 게이트가 깨지지 않는다.
+# 대신 하한만 지킨다: 케이스가 조용히 줄어들면 실패한다.
+function Test-SelfTestAllPassed([string]$Text, [int]$MinimumCases) {
+    if ($Text -notmatch '(\d+)/(\d+)\s*통과') { return $false }
+    $taskPassed = [int]$Matches[1]
+    $taskTotal = [int]$Matches[2]
+    return $taskPassed -eq $taskTotal -and $taskTotal -ge $MinimumCases
+}
+
+if (-not (Test-SelfTestAllPassed $taskForecast 27) -or -not (Test-SelfTestAllPassed $taskParser 32)) {
+    throw 'An existing self-test did not pass (expected all cases passing: forecast >= 27, codex parser >= 32).'
 }
 
 $taskProviders = @(

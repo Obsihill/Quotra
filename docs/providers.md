@@ -102,17 +102,22 @@ public sealed class CodexUsageSource : IUsageSource
 
 ## 3단계 — 등록
 
-`src/Quotra.WinUI/App.xaml.cs` 의 `OnLaunched` 에서 카탈로그를 읽은 직후:
+소스 클래스에 `[UsageSource("<카탈로그 id>")]` 만 붙이면 등록은 자동입니다.
 
 ```csharp
-// 실연동: Codex(ChatGPT 플랜) 사용량. 카탈로그에 id=codex 가 있을 때만 실제로 조회한다.
-if (_usage.Providers.Any(p => p.Id == "codex"))
+[UsageSource("codex")]
+public sealed class CodexUsageSource : IUsageSource
 {
-    _usage.Register("codex", new CodexUsageSource(_codexHost, _codexAuthPath));
+    // 자동 등록은 "기본값만 가진 생성자"를 그대로 호출한다 — 생성자 주입 없이 스스로 기본값을 정한다.
+    public CodexUsageSource(string host = "https://chatgpt.com", string? authPath = null) { /* … */ }
 }
 ```
 
-`Register` 한 순간부터 그 프로바이더는 `미연동` → 실제 값으로 바뀝니다(배터리 채움 + 예측 감소량).
+`App.xaml.cs` 는 고치지 않습니다. `OnLaunched` 의 `RegisterAnnotatedSources` 가 리플렉션으로
+소스를 스캔해 **카탈로그에 그 id 가 있을 때만** 등록합니다. 등록에 실패한 소스는 그 프로바이더만
+`미연동` 으로 남고 나머지는 정상 동작합니다(사유는 로그에 남습니다).
+
+등록되는 순간부터 그 프로바이더는 `미연동` → 실제 값으로 바뀝니다(배터리 채움 + 예측 감소량).
 갱신 주기는 `--refresh=ms`(기본 60초)입니다.
 
 ---
@@ -193,13 +198,27 @@ Windows DPAPI 및 Chromium AES-GCM 저장 형식을 지원하며, 앱 전용 암
 연결 성공으로 저장하지 않습니다. 조직이 여러 개면 로그인 창에서 사용하려는 조직으로 전환하세요.
 **Quotra 로그인 삭제**는 Quotra가 저장한 로그인만 삭제합니다. 새로고침하면 기존 앱 로그인을 다시 찾습니다.
 
-자격증명 파일은 **매 조회마다 읽기만** 합니다. 토큰을 갱신하거나 파일을 수정하지 않으며,
-토큰과 원문 응답도 로그나 오류 문구에 남기지 않습니다. Claude Code가 로그인 정보를 갱신하면
-다음 자동 조회부터 새 토큰을 읽습니다. 기본 갱신 간격은 60초입니다.
+Claude Code 자격증명은 매 조회마다 다시 읽으며, 접근 토큰 만료 60초 전부터 기존 `refreshToken`으로
+자동 갱신합니다. 사용량 요청이 401을 반환한 경우에도 한 번만 갱신하고 조회를 재시도합니다.
+갱신 주소는 `https://platform.claude.com/v1/oauth/token`이며, 응답의 새 접근 토큰·갱신 토큰·만료 시각을
+같은 `.credentials.json`에 저장합니다. 기존 권한과 다른 설정을 보존하고, 같은 폴더의 임시 파일을
+원자적으로 교체합니다. Claude Code의 현재/이전 갱신 잠금을 함께 사용하며 잠금을 빼앗지 않습니다.
+프로토콜과 잠금은 공개 안정 계약이 아니며 [갱신 요청 보고](https://github.com/anthropics/claude-code/issues/53063)와
+[Windows 잠금 보고](https://github.com/anthropics/claude-code/issues/95236)를 참고했습니다.
+
+`invalid_grant` 등으로 갱신 토큰이 거부되면 재로그인 안내를 표시하고, 같은 로그인에 대한 갱신 요청은
+현재 앱 실행 중 반복하지 않습니다. 429는 `Retry-After`를 반영해 최소 60초 대기합니다.
+`--provider-file` 또는 `--provider-url`로 Claude 진단 경로를 지정하면 자동 갱신과 파일 쓰기를 하지 않습니다.
+토큰과 원문 응답은 로그나 오류 문구에 남기지 않습니다. Quotra에서 직접 연결한 웹 로그인은 기존처럼
+우선 적용하며, 실패했다고 다른 계정으로 전환하지 않습니다. 기본 사용량 갱신 간격은 60초입니다.
+
+`--provider-test=claude`는 합성 자격증명과 HTTP 대역으로 자동 갱신·토큰 교체·동시 요청·실패·주간 한도
+파서를 점검합니다. 실제 로그인과 네트워크는 사용하지 않습니다.
+`--provider-once=claude`는 실제 기존 로그인을 필요하면 갱신하고 주간/5시간 사용량을 한 번 조회합니다.
 
 로그인이 없거나 만료되면 **설정의 Claude 항목**에 실패 원인과 로그인 안내가 나옵니다.
 값을 받은 적이 없는 서비스도 설정 목록에 표시됩니다. HTTP 429는 다음 주기 때 다시 시도하고, 401·403·기타 오류는
-상태 코드만 표시합니다. 구독 로그인을 사용하며 Anthropic Console API 키나
+상태 코드와 정해진 안내만 표시합니다. 구독 로그인을 사용하며 Anthropic Console API 키나
 API 크레딧은 사용하지 않습니다.
 
 ---
@@ -240,7 +259,7 @@ $out = 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64'
 $exe = "$out\QuotraWinUI.exe"
 $repo = (Get-Location).Path        # 저장소 루트에서 실행
 
-# 1) Codex 파서만 점검(네트워크 없음 · 합성 응답 26케이스) — 프로바이더 공통: --provider-test=<id>
+# 1) Codex 파서만 점검(네트워크 없음 · 합성 응답 32케이스) — 프로바이더 공통: --provider-test=<id>
 Start-Process $exe -WorkingDirectory $out -ArgumentList '--provider-test=codex' -Wait -RedirectStandardOutput ct.log
 
 # 2) 실연동 1회 조회(창 없음) — 값·엔드포인트·실패 사유가 로그에 남는다 — 공통: --provider-once=<id>
@@ -253,7 +272,7 @@ Start-Process $exe -WorkingDirectory $out -ArgumentList "--codex-parse=$repo\too
 Start-Process $exe -WorkingDirectory $out -ArgumentList '--provider-once=codex','--provider-url=codex=https://127.0.0.1:9' -Wait
 Start-Process $exe -WorkingDirectory $out -ArgumentList '--provider-once=codex','--provider-file=codex=no-such-auth.json' -Wait
 
-# 5) 예측 엔진만 점검(합성 시계열 19케이스)
+# 5) 예측 엔진만 점검(합성 시계열 27케이스)
 Start-Process $exe -WorkingDirectory $out -ArgumentList '--forecast-test' -Wait -RedirectStandardOutput ft.log
 ```
 
@@ -287,6 +306,7 @@ Start-Process $exe -WorkingDirectory $out -ArgumentList "--catalog=$repo\tools\f
    · 자체 점검을 붙이려면 `IUsageSelfTest` 를 구현한다(`--provider-test=<id>` 가 실행한다).
    · API 키 입력형은 `IKeyedUsageSource` 를 구현한다 — 우클릭 → **프로바이더 설정…** 목록에 자동으로 나타난다.
    · 실패 경로 검증용 재정의는 `IUsageDiagnostics` 로 받는다(`--provider-url=<id>=<주소>` · `--provider-file=<id>=<경로>`).
+     진단 주소는 로컬 루프백(http/https)만 허용한다 — 실계정 토큰이 임의 호스트로 실려 나가지 않게 한다.
    · 창 구성이 바뀌어 예측 이력을 분리해야 하면 `ProviderSnapshot.HistoryKey` 를 지정한다.
 5. 문서·캡처를 갱신한다([winui3.md](winui3.md) 의 검증 표가 기준입니다).
 

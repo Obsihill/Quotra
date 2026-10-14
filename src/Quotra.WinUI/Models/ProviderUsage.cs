@@ -35,6 +35,14 @@ public sealed class ProviderUsage
     /// <summary>카탈로그에 적어 두는 설명(소스가 값을 주면 그쪽 문구로 대체된다).</summary>
     public string Note { get; set; } = string.Empty;
 
+    /// <summary>카탈로그의 기본 플랜 이름 — 조회 결과가 플랜을 안 알려주면 이 값으로 되돌린다.</summary>
+    [JsonIgnore]
+    public string CatalogPlan { get; set; } = string.Empty;
+
+    /// <summary>카탈로그의 기본 설명 — 조회 결과가 설명을 안 주면 이 문구로 되돌린다.</summary>
+    [JsonIgnore]
+    public string CatalogNote { get; set; } = string.Empty;
+
     public bool Enabled { get; set; } = true;
 
     // ---------------------------------------------------------- 조회 결과
@@ -42,7 +50,7 @@ public sealed class ProviderUsage
     /// <summary>장기(주간) 한도 사용률 0~1. 화면에는 남은 양(1−이 값)을 보여준다.</summary>
     public double? Primary { get; set; }
 
-    /// <summary>단기(세션) 한도 사용률 0~1. 스피어 바깥 링으로 표시.</summary>
+    /// <summary>단기(세션) 한도 사용률 0~1. 화면에는 남은 양(1−이 값)을 보여준다.</summary>
     public double? Secondary { get; set; }
 
     /// <summary>장기 한도가 리셋되는 시각(모르면 null).</summary>

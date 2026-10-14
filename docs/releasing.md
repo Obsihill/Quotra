@@ -19,7 +19,7 @@ PFX를 Base64로 변환할 때는 로컬에서 다음 PowerShell 명령을 사�
 
 ## 릴리스 순서
 
-1. CHANGELOG.md에 공개할 변경 사항을 기록하고 src/Quotra.WinUI/Quotra.WinUI.csproj의 기본 버전을 다음 버전으로 올립니다.
+1. CHANGELOG.md에 공개할 변경 사항을 기록하고 src/Quotra.WinUI/Quotra.WinUI.csproj의 기본 버전을 다음 버전으로 올립니다. 앱이 프로바이더에 보내는 버전(User-Agent, Codex 클라이언트 초기화)은 어셈블리 메타데이터에서 읽으므로 소스에 버전을 따로 적지 않습니다. app.manifest의 버전은 publish-release.ps1이 태그 버전으로 다시 쓰므로 로컬 기본값만 csproj와 맞춰 둡니다.
 2. 변경을 병합한 뒤 SemVer 태그를 만들고 푸시합니다.
 
     git tag v1.0.0
