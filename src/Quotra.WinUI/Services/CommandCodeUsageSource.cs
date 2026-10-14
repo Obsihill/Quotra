@@ -2,40 +2,103 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Windows.Security.Credentials;
 
 namespace Quotra.WinUI.Services;
 
 /// <summary>
-/// Command Code 계정의 주간·5시간 사용량.
-/// Command Code CLI 로그인 파일(또는 COMMAND_CODE_API_KEY)을 읽고,
-/// CLI /usage가 사용하는 계정 사용량 경로에서 한도 정보를 가져온다.
+/// Command Code 계정의 월간 크레딧·5시간 사용량.
+/// 설정에서 입력한 API 키로 계정 사용량 경로에서 한도 정보를 가져온다.
+/// 키는 Windows 자격 증명 보관함에만 저장한다.
 /// </summary>
 [UsageSource("commandcode")]
-public sealed class CommandCodeUsageSource : IUsageSource, IUsageDiagnostics
+public sealed class CommandCodeUsageSource : IKeyedUsageSource, IUsageDiagnostics, IUsageSelfTest
 {
+    private const string Resource = "Quotra.CommandCode";
+    private const string Account = "api-key";
     private const string DefaultApiBaseUrl = "https://api.commandcode.ai";
     private static readonly HttpClient Http = CreateHttpClient();
-    private string? _authPath;
+    private readonly HttpClient _http;
+    private readonly Func<string?> _loadKey;
     private string _apiBaseUrl = DefaultApiBaseUrl;
+
+    public CommandCodeUsageSource()
+    {
+        _http = Http;
+        _loadKey = LoadKey;
+    }
+
+    internal CommandCodeUsageSource(HttpClient http, Func<string?> loadKey)
+    {
+        _http = http;
+        _loadKey = loadKey;
+    }
 
     public string DisplayName => "Command Code 사용량";
 
     public string ShortName => "Command Code";
 
-    public static string DefaultAuthPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".commandcode",
-        "auth.json");
+    public string KeyLabel => "Command Code";
 
-    public async Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
+    public string KeyHint => "Command Code Studio에서 발급한 API 키";
+
+    public string SelfTestName => "Command Code API 키 연결";
+
+    public bool RunSelfTest() => CommandCodeUsageSelfTest.Run();
+
+    public string? LoadKey()
     {
+        try
+        {
+            PasswordCredential credential = new PasswordVault().Retrieve(Resource, Account);
+            credential.RetrievePassword();
+            return credential.Password;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return null;
+        }
+    }
+
+    public void SaveKey(string key)
+    {
+        new PasswordVault().Add(new PasswordCredential(Resource, Account, NormalizeKey(key)));
+    }
+
+    public void DeleteKey()
+    {
+        var vault = new PasswordVault();
+        try
+        {
+            vault.Remove(vault.Retrieve(Resource, Account));
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+        }
+    }
+
+    public Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
+    {
+        string? key = _loadKey();
+        return string.IsNullOrWhiteSpace(key)
+            ? Task.FromResult(new ProviderSnapshot())
+            : FetchWithKeyAsync(key, cancellationToken);
+    }
+
+    public async Task<string> VerifyKeyAsync(string key, CancellationToken cancellationToken)
+    {
+        ProviderSnapshot snapshot = await FetchWithKeyAsync(key, cancellationToken).ConfigureAwait(false);
+        return snapshot.Note ?? "사용량 조회에 성공했습니다.";
+    }
+
+    private async Task<ProviderSnapshot> FetchWithKeyAsync(string key, CancellationToken cancellationToken)
+    {
+        string apiKey = NormalizeKey(key);
         // 진단 재정의는 로컬 루프백만 — 실계정 토큰이 임의 호스트로 실려 나가지 않게 한다.
         if (!string.Equals(_apiBaseUrl, DefaultApiBaseUrl, StringComparison.OrdinalIgnoreCase))
         {
             DiagnosticGuard.EnsureLoopback(_apiBaseUrl, "Command Code");
         }
-
-        string apiKey = await ReadApiKeyAsync(cancellationToken).ConfigureAwait(false);
 
         // Command Code CLI resolves the active account namespace before requesting its usage.
         using JsonDocument identity = await GetJsonAsync("/alpha/whoami?limits=1", apiKey, cancellationToken).ConfigureAwait(false);
@@ -43,62 +106,35 @@ public sealed class CommandCodeUsageSource : IUsageSource, IUsageDiagnostics
         string query = string.IsNullOrWhiteSpace(orgId) ? string.Empty : $"?orgId={Uri.EscapeDataString(orgId)}";
 
         using JsonDocument credits = await GetJsonAsync($"/alpha/billing/credits{query}", apiKey, cancellationToken).ConfigureAwait(false);
-        return ParseUsage(credits.RootElement);
+        using JsonDocument subscription = await GetJsonAsync($"/alpha/billing/subscriptions{query}", apiKey, cancellationToken).ConfigureAwait(false);
+        JsonElement account = UnwrapData(identity.RootElement);
+        string accountId = orgId ?? (account.TryGetProperty("user", out JsonElement user) && user.ValueKind == JsonValueKind.Object
+            && user.TryGetProperty("id", out JsonElement id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null) ?? apiKey;
+        string accountHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(accountId)))[..16];
+        return ParseUsage(credits.RootElement, subscription.RootElement, accountHash);
     }
 
     public void ApplyDiagnostics(string? url, string? file)
     {
+        if (!string.IsNullOrWhiteSpace(file))
+        {
+            throw new InvalidOperationException("Command Code는 로그인 파일을 사용하지 않습니다. 프로바이더 설정에서 API 키를 연결하세요.");
+        }
+
         if (!string.IsNullOrWhiteSpace(url))
         {
             _apiBaseUrl = url.TrimEnd('/');
         }
-
-        if (!string.IsNullOrWhiteSpace(file))
-        {
-            _authPath = file;
-        }
     }
 
-    private async Task<string> ReadApiKeyAsync(CancellationToken cancellationToken)
+    private static string NormalizeKey(string key)
     {
-        if (_authPath is null && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("COMMAND_CODE_API_KEY")))
+        if (string.IsNullOrWhiteSpace(key) || key.Trim().Any(char.IsWhiteSpace) || key.Any(char.IsControl))
         {
-            return Environment.GetEnvironmentVariable("COMMAND_CODE_API_KEY")!.Trim();
+            throw new InvalidOperationException("올바른 Command Code API 키를 입력하세요.");
         }
 
-        string authPath = _authPath ?? DefaultAuthPath;
-        if (!File.Exists(authPath))
-        {
-            throw new InvalidOperationException(
-                $"Command Code 로그인이 없습니다. Command Code에서 로그인하거나 {authPath}에 로그인 정보를 만들어 주세요.");
-        }
-
-        try
-        {
-            string json = await File.ReadAllTextAsync(authPath, cancellationToken).ConfigureAwait(false);
-            using JsonDocument document = JsonDocument.Parse(json);
-            if (document.RootElement.TryGetProperty("apiKey", out JsonElement apiKey) &&
-                apiKey.ValueKind == JsonValueKind.String &&
-                !string.IsNullOrWhiteSpace(apiKey.GetString()))
-            {
-                return apiKey.GetString()!.Trim();
-            }
-
-            throw new InvalidOperationException(
-                "Command Code 로그인 파일에서 API 키를 찾지 못했습니다. Command Code에서 다시 로그인하세요.");
-        }
-        catch (JsonException)
-        {
-            throw new InvalidOperationException("Command Code 로그인 파일을 읽지 못했습니다. Command Code에서 다시 로그인하세요.");
-        }
-        catch (IOException)
-        {
-            throw new InvalidOperationException("Command Code 로그인 파일을 읽을 수 없습니다.");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            throw new InvalidOperationException("Command Code 로그인 파일에 접근할 수 없습니다.");
-        }
+        return key.Trim();
     }
 
     private async Task<JsonDocument> GetJsonAsync(string path, string apiKey, CancellationToken cancellationToken)
@@ -108,10 +144,10 @@ public sealed class CommandCodeUsageSource : IUsageSource, IUsageDiagnostics
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.UserAgent.ParseAdd("cli");
 
-        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            throw new InvalidOperationException("Command Code 인증이 만료되었거나 거부되었습니다. Command Code에서 다시 로그인하세요.");
+            throw new InvalidOperationException("Command Code API 키가 유효하지 않거나 만료되었습니다. 프로바이더 설정에서 새 API 키를 연결하세요.");
         }
 
         if (response.StatusCode == HttpStatusCode.Forbidden)
@@ -150,35 +186,69 @@ public sealed class CommandCodeUsageSource : IUsageSource, IUsageDiagnostics
             : null;
     }
 
-    private static ProviderSnapshot ParseUsage(JsonElement root)
+    private static ProviderSnapshot ParseUsage(JsonElement root, JsonElement subscriptionRoot, string accountHash)
     {
         try
         {
             JsonElement payload = UnwrapData(root);
-            if (!payload.TryGetProperty("windowLimits", out JsonElement limits) ||
-                limits.ValueKind != JsonValueKind.Object)
+            JsonElement subscription = UnwrapData(subscriptionRoot);
+            if (payload.ValueKind != JsonValueKind.Object || subscription.ValueKind != JsonValueKind.Object)
+                throw new JsonException();
+            WindowUsage? fiveHour = null;
+            string weeklyNote = string.Empty;
+            if (payload.TryGetProperty("windowLimits", out JsonElement limits) && limits.ValueKind == JsonValueKind.Object)
             {
-                throw new JsonException("Missing windowLimits.");
+                fiveHour = ReadWindow(limits, "fiveHour");
+                if (ReadWindow(limits, "weekly") is { } weekly)
+                    weeklyNote = $" · 별도 주간 제한 {weekly.Used:P0} 사용";
             }
-
-            WindowUsage? weekly = ReadWindow(limits, "weekly");
-            WindowUsage? fiveHour = ReadWindow(limits, "fiveHour");
-
-            if (weekly is null && fiveHour is null &&
-                (!limits.TryGetProperty("limited", out JsonElement limited) || limited.ValueKind != JsonValueKind.False))
-            {
-                throw new JsonException("No recognized usage windows.");
-            }
-
+            if (!payload.TryGetProperty("credits", out JsonElement credits) || credits.ValueKind != JsonValueKind.Object
+                || !credits.TryGetProperty("monthlyCredits", out JsonElement remainingElement)
+                || remainingElement.ValueKind != JsonValueKind.Number
+                || !remainingElement.TryGetDouble(out double remaining) || !double.IsFinite(remaining) || remaining < 0)
+                throw new JsonException();
+            string? planId = ReadString(subscription, "planId");
+            (string Name, double Cap)? plan = PlanInfo(planId);
+            DateTimeOffset? resetsAt = ReadResetAt(subscription, "currentPeriodEnd");
+            bool active = ReadString(subscription, "status") == "active";
+            WindowUsage? monthly = active && plan is { } known && remaining <= known.Cap
+                ? new WindowUsage(Math.Clamp(1 - remaining / known.Cap, 0, 1), resetsAt) : null;
+            string note = monthly is not null
+                ? $"월간 크레딧 {remaining.ToString("0.##", CultureInfo.InvariantCulture)}/{plan!.Value.Cap.ToString("0.##", CultureInfo.InvariantCulture)} 남음 · 총량은 공식 CLI 플랜 기준"
+                : $"월간 크레딧 {remaining.ToString("0.##", CultureInfo.InvariantCulture)} 남음 · 월간 총량을 확인할 수 없어 사용률을 표시하지 않습니다";
             return new ProviderSnapshot(
-                Primary: weekly,
+                Primary: monthly,
                 Secondary: fiveHour,
-                Note: "Command Code 계정의 주간·5시간 사용 한도");
+                Plan: plan?.Name,
+                PrimaryLabel: "월간",
+                SecondaryLabel: "5시간",
+                HistoryKey: $"commandcode-monthly-{accountHash}-{planId}",
+                Note: note + weeklyNote);
         }
         catch (JsonException)
         {
             throw new InvalidOperationException("Command Code 사용량 응답 형식이 바뀌어 값을 읽지 못했습니다.");
         }
+    }
+
+    private static string? ReadString(JsonElement root, string name) => root.TryGetProperty(name, out JsonElement value)
+        && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static (string Name, double Cap)? PlanInfo(string? planId)
+    {
+        // Verified against the published official command-code 1.82.1 CLI on 2026-10-15.
+        // Match longer versioned IDs first; unknown/custom plans never receive an invented quota.
+        string normalized = planId?.ToLowerInvariant().Replace('_', '-') ?? string.Empty;
+        (string Id, string Name, double Cap)[] plans =
+        [
+            ("individual-pro-v1", "Pro", 80), ("individual-go-v1", "Go", 10),
+            ("individual-provider", "Provider", 15), ("individual-goat", "GOAT", 70),
+            ("individual-ultra", "Ultra", 300), ("individual-max", "Max", 150),
+            ("individual-pro", "Pro", 30), ("individual-go", "Go", 10), ("teams-pro", "Teams Pro", 40),
+        ];
+        foreach (var plan in plans)
+            if (normalized == plan.Id || normalized.StartsWith(plan.Id + "-", StringComparison.Ordinal)) return (plan.Name, plan.Cap);
+        return null;
     }
 
     private static WindowUsage? ReadWindow(JsonElement limits, string name)
@@ -205,9 +275,9 @@ public sealed class CommandCodeUsageSource : IUsageSource, IUsageDiagnostics
         return new WindowUsage(Math.Clamp(used / cap, 0, 1), ReadResetAt(window));
     }
 
-    private static DateTimeOffset? ReadResetAt(JsonElement window)
+    private static DateTimeOffset? ReadResetAt(JsonElement window, string field = "resetAt")
     {
-        if (!window.TryGetProperty("resetAt", out JsonElement reset))
+        if (!window.TryGetProperty(field, out JsonElement reset))
         {
             return null;
         }
@@ -216,7 +286,8 @@ public sealed class CommandCodeUsageSource : IUsageSource, IUsageDiagnostics
         {
             if (reset.ValueKind == JsonValueKind.Number && reset.TryGetInt64(out long milliseconds) && milliseconds > 0)
             {
-                return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
+                return milliseconds < 1_000_000_000_000
+                    ? DateTimeOffset.FromUnixTimeSeconds(milliseconds) : DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
             }
 
             if (reset.ValueKind == JsonValueKind.String &&

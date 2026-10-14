@@ -8,7 +8,7 @@
     <AssemblyName>QuotraWinUI</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Quotra.ico</ApplicationIcon>
-    <Version>1.0.2</Version>
+    <Version>1.1.2</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
@@ -23,6 +23,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <EnableMsixTooling>false</EnableMsixTooling>
+    <!-- Keep prior generated files excluded when an isolated build redirects obj/bin. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

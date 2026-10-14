@@ -9,6 +9,12 @@ internal static class Boot
     [System.Runtime.CompilerServices.ModuleInitializer]
     internal static void Init()
     {
+        // Claude's status-line command must read stdin and exit before boot logs or any windows.
+        if (Environment.GetCommandLineArgs().Contains("--claude-statusline"))
+        {
+            Services.ClaudeStatusLineBridge.Collect(Console.In.ReadToEnd());
+            Environment.Exit(0);
+        }
         // 자동화가 stdout 을 읽을 때 한글이 콘솔 코드페이지(OEM)로 깨지지 않게 UTF-8 로 고정한다.
         try
         {

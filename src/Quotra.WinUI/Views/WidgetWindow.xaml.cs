@@ -404,7 +404,7 @@ public sealed partial class WidgetWindow : Window
         else if (failed.Length > 0)
         {
             EmptyTitle.Text = "사용량 조회에 실패했습니다";
-            EmptyDescription.Text = $"{string.Join(", ", failed.Select(provider => provider.Name))} · 연결 설정에서 오류 원인을 확인하고 로그인하거나 새로고침하세요.";
+            EmptyDescription.Text = $"{string.Join(", ", failed.Select(provider => provider.Name))} · 프로바이더 설정에서 오류 원인과 연결 안내를 확인하세요.";
         }
         else
         {

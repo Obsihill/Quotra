@@ -1,5 +1,10 @@
 # 프로바이더 붙이기 (확장 지점)
 
+프로바이더 설정은 ChatGPT, Claude를 먼저 표시하고 나머지 서비스를 그 아래에 배치합니다.
+Claude는 유효한 로그인이 없어도 설정 목록에 남으며 **등록 안 됨**으로 표시합니다.
+로그인 취소·만료로 다시 로그인해야 할 때는 이전 사용량을 비우고 로그인 안내를 표시합니다.
+네트워크 오류·HTTP 429 같은 일시적인 조회 실패는 로그인 해제와 구분합니다.
+
 OpenCode Go는 위젯 우클릭 → **프로바이더 설정…**에서 API 키를 입력합니다.
 **연결 확인 및 저장**은 Go 사용량 조회 성공 후 Windows 자격 증명 보관함에 키를 저장합니다.
 저장된 키로 `https://opencode.ai/zen/go/v1/usage`를 조회해 월간 잔여량과 리셋 시각만 배터리에 표시합니다.
@@ -7,9 +12,10 @@ OpenCode Go는 위젯 우클릭 → **프로바이더 설정…**에서 API 키�
 키는 설정 JSON 및 로그에 기록하지 않으며 다른 앱의 키를 자동으로 가져오지 않습니다.
 `--provider-test=opencode-go`로 사용률·리셋 시각 변환을 자체 검증할 수 있습니다.
 
-Command Code는 기존 Command Code 로그인을 자동으로 사용합니다. Command Code CLI 또는 Desktop에서 로그인하면
-`%USERPROFILE%\.commandcode\auth.json` 을 읽고, `COMMAND_CODE_API_KEY` 환경 변수가 있으면 그 값을 우선합니다.
-별도 키 복사나 Quotra 설정창에서의 저장은 필요하지 않습니다.
+Command Code도 위젯 우클릭 → **프로바이더 설정…** → **Command Code**에서 Studio API 키를 입력합니다.
+**연결 확인 및 저장**으로 월간 크레딧·5시간 한도 조회를 확인한 뒤 Windows 자격 증명 보관함에 저장합니다.
+기존 PC 로그인 파일과 `COMMAND_CODE_API_KEY` 환경 변수는 사용하지 않으며, CLI·Desktop 설치가 필요하지 않습니다.
+**연결 해제**는 Quotra에 저장된 키와 표시 값을 지우며 기존 PC 로그인으로 다시 연결하지 않습니다.
 
 Quotra 위젯은 **"무엇을 보여줄지"** 와 **"얼마나 썼는지"** 를 분리합니다.
 
@@ -22,8 +28,8 @@ Quotra 위젯은 **"무엇을 보여줄지"** 와 **"얼마나 썼는지"** 를 
 목업 난수는 **없습니다.** 소스가 등록되지 않은 프로바이더는 값이 `null` 로 남고 위젯은
 `미연동` 이라고 표시합니다 — 0% 로 그리면 "한도가 가득 찼다"로 잘못 읽히기 때문입니다.
 
-**Codex(ChatGPT 플랜), Claude, Command Code가 기본 연동됩니다.** 기본 카탈로그에 들어 있어 앱을 켜면
-각 서비스의 기존 로그인 정보를 찾아 사용량을 자동으로 읽습니다. OpenCode Go는 API 키를 설정한 경우 표시됩니다.
+**Codex(ChatGPT 플랜), Claude, Command Code, OpenCode Go가 기본 카탈로그에 포함됩니다.** 앱을 켜면
+Codex·Claude의 기존 로그인 정보를 찾아 사용량을 자동으로 읽습니다. Command Code·OpenCode Go는 API 키를 설정한 경우 표시됩니다.
 Codex는 4절, Claude는 5절, Command Code는 6절을 참고하세요.
 
 ---
@@ -168,7 +174,10 @@ Codex 응답은 5시간 창이 `primary`, 7일 창이 `secondary` 로 오는 경
 
 ## 5. Claude 실연동
 
-Claude는 **Quotra에서 직접 연결한 로그인 → Claude 데스크톱 로그인 → Claude Code OAuth** 순서로 찾습니다.
+Claude는 **Claude Code OAuth → 설치된 Claude Code의 `/usage` → Claude Desktop 기존 로그인** 순서로 확인합니다.
+OAuth 실패 시 활성화된 상태줄 보조 연결에 유효한 최신 표본이 있으면 추가 요청 없이 그 표본을 먼저 사용합니다.
+Code 인증이 있는 PC에서 Desktop으로 전환하려면 서버에서 확인한 계정과 조직이 모두 일치해야 합니다.
+계정 소유자를 확인할 수 없는 오래된 파일이 남아 있으면 다른 Desktop 계정의 값을 대신 표시하지 않습니다.
 이 경로는 Anthropic이 공개 안정 API로 문서화한 경로가 아니므로, 응답 형식이나 접근 정책이 바뀌면
 위젯에 `조회 오류`가 표시될 수 있습니다. Claude Pro/Max의 Claude와 Claude Code 사용량은 같은
 한도를 공유하며 5시간 및 주간 한도를 지원합니다([Anthropic 도움말](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-or-max-plan)).
@@ -176,7 +185,7 @@ Claude는 **Quotra에서 직접 연결한 로그인 → Claude 데스크톱 로�
 
 | 항목 | 값 |
 | --- | --- |
-| 엔드포인트 | 웹 로그인: `https://claude.ai/api/organizations` 및 `/api/organizations/{id}/usage`. Claude Code: `https://api.anthropic.com/api/oauth/usage` |
+| 엔드포인트 | Desktop: `https://claude.ai/api/organizations`, `/api/account`, `/api/organizations/{id}/usage`. OAuth: `https://api.anthropic.com/api/oauth/usage` 및 계정 확인용 `/api/oauth/profile` |
 | 자격증명 | 데스크톱: Claude 전용 프로필의 `sessionKey` 쿠키. Claude Code: `CLAUDE_CONFIG_DIR/.credentials.json`의 `claudeAiOauth.accessToken` (기본 `%USERPROFILE%\.claude`) |
 | 헤더 | `Authorization: Bearer …`, `anthropic-beta: oauth-2025-04-20`, `Accept: application/json` |
 | 주간/5시간 매핑 | `seven_day`를 배터리에, `five_hour`를 보조 한도에 표시. 주간 값이 없으면 주 배터리를 5시간으로 표시하고 이력 분리 |
@@ -191,12 +200,10 @@ Windows DPAPI 및 Chromium AES-GCM 저장 형식을 지원하며, 앱 전용 암
 저장소 잠금 등으로 읽을 수 없으면 이유를 설정에 표시합니다. 암호화를 우회하지 않습니다.
 웹 조회 흐름은 [CodexBar의 공개 구현](https://github.com/steipete/CodexBar/blob/main/docs/claude.md)을 참고했습니다.
 
-자동 연결이 안 되면 **프로바이더 설정 → Claude → Claude 로그인**에서 로그인한 뒤
-**로그인 확인 및 연결**을 누릅니다. 별도 CLI 설치나 다른 PC 사용자의 폴더 확인이 필요하지 않습니다.
-조회에 성공한 로그인만 Windows 자격 증명 보관함에 저장합니다. 로그인 창은 Quotra 전용 WebView2
-프로필을 사용하며 닫을 때 쿠키를 지웁니다. 웹 접근 정책 때문에 403이 반환되면 차단 사유를 안내하며
-연결 성공으로 저장하지 않습니다. 조직이 여러 개면 로그인 창에서 사용하려는 조직으로 전환하세요.
-**Quotra 로그인 삭제**는 Quotra가 저장한 로그인만 삭제합니다. 새로고침하면 기존 앱 로그인을 다시 찾습니다.
+Quotra 안에는 별도 로그인 기능이 없습니다. 이 PC의 Claude Code 또는 Claude Desktop에서
+구독 계정으로 로그인한 뒤 **프로바이더 설정 → Claude → 새로고침**을 누릅니다.
+기존 인증을 확인할 수 없으면 설정 목록에 **등록 안 됨**으로 표시하고 외부 앱에서 로그인하도록 안내합니다.
+예전 버전에서 Quotra에 직접 저장한 웹 로그인은 더 이상 읽거나 사용하지 않습니다.
 
 Claude Code 자격증명은 매 조회마다 다시 읽으며, 접근 토큰 만료 60초 전부터 기존 `refreshToken`으로
 자동 갱신합니다. 사용량 요청이 401을 반환한 경우에도 한 번만 갱신하고 조회를 재시도합니다.
@@ -206,14 +213,54 @@ Claude Code 자격증명은 매 조회마다 다시 읽으며, 접근 토큰 만
 프로토콜과 잠금은 공개 안정 계약이 아니며 [갱신 요청 보고](https://github.com/anthropics/claude-code/issues/53063)와
 [Windows 잠금 보고](https://github.com/anthropics/claude-code/issues/95236)를 참고했습니다.
 
-`invalid_grant` 등으로 갱신 토큰이 거부되면 재로그인 안내를 표시하고, 같은 로그인에 대한 갱신 요청은
-현재 앱 실행 중 반복하지 않습니다. 429는 `Retry-After`를 반영해 최소 60초 대기합니다.
+`invalid_grant` 등으로 갱신 토큰이 거부되면 같은 로그인에 대한 갱신 요청은 현재 앱 실행 중 반복하지 않습니다.
+이때도 설치된 CLI의 조회가 가능한지 확인하며, 모든 경로가 실패하면 재로그인 안내를 표시합니다.
+429는 `Retry-After`를 반영해 최소 60초 대기하고, 대기 중에는 CLI·Desktop을 포함한 추가 능동 조회도 중지합니다.
 `--provider-file` 또는 `--provider-url`로 Claude 진단 경로를 지정하면 자동 갱신과 파일 쓰기를 하지 않습니다.
-토큰과 원문 응답은 로그나 오류 문구에 남기지 않습니다. Quotra에서 직접 연결한 웹 로그인은 기존처럼
-우선 적용하며, 실패했다고 다른 계정으로 전환하지 않습니다. 기본 사용량 갱신 간격은 60초입니다.
+진단 모드는 CLI·Desktop 자동 탐색도 실행하지 않습니다. 기본 사용량 갱신 간격은 60초입니다.
 
-`--provider-test=claude`는 합성 자격증명과 HTTP 대역으로 자동 갱신·토큰 교체·동시 요청·실패·주간 한도
-파서를 점검합니다. 실제 로그인과 네트워크는 사용하지 않습니다.
+### Claude Code CLI 대체 조회
+
+OAuth 직접 조회가 실패하면 설치된 Claude Code의 `auth status`로 구독 로그인을 확인하고,
+Windows 가상 터미널(ConPTY)에서 `/usage` 화면을 읽습니다. 모델에 프롬프트를 보내지 않습니다.
+`CLAUDE_CONFIG_DIR`를 동일하게 적용하고, API 키·다른 모델 서비스의 환경 변수로 계정이 바뀌는 것을 막습니다.
+실행 시간은 최대 20초, 수집 출력은 최대 128 KiB이며 실패한 CLI는 2분 동안 반복 실행하지 않습니다.
+로그인이 바뀌면 이 대기를 초기화합니다. Claude Code가 없거나 호환되지 않으면 다음 경로를 확인합니다.
+CLI는 사용자가 Claude Code에서 이미 신뢰한 로컬 폴더에서만 실행하고, 사용자 지정 명령·후크·도구·원격 연결을 비활성화합니다.
+신뢰한 폴더가 없으면 폴더 신뢰를 자동 승인하지 않고 다음 경로로 넘어갑니다.
+
+CLI의 영어 `Current session`, `Current week (all models)`에 명확한 사용률이 있을 때만 값을 사용합니다.
+모델별 주간 제한이나 비용 통계를 전체 주간 한도로 해석하지 않으며, 리셋 시각을 확실히 읽지 못하면 비워 둡니다.
+로그인·정책 동의 화면에는 자동으로 응답하지 않습니다. CLI의 지원 옵션이나 화면 형식이 달라진 경우,
+프로바이더 설정에서 실패 원인을 확인하고 Claude Code를 업데이트하거나 상태줄 보조 연결을 사용할 수 있습니다.
+명령 형식은 [Claude Code 공식 CLI 문서](https://code.claude.com/docs/en/cli-reference)를 기준으로 합니다.
+
+Desktop 대체 조회의 계정 확인은 OAuth 토큰으로 받은 서버 프로필을 기준으로 합니다.
+로컬 `.claude.json`의 오래된 계정 이름이나 이메일만으로 같은 계정이라고 판단하지 않습니다.
+확인된 계정·조직 UUID와 토큰의 SHA-256 지문만 `%LOCALAPPDATA%\Quotra\claude-identities`에 캐시합니다.
+토큰·쿠키·이메일·CLI 원문은 이 캐시나 로그에 저장하지 않으며, 사용량 이력은 계정과 조회 경로별로 분리합니다.
+Code 인증 파일의 계정을 서버 또는 이전에 검증한 같은 토큰의 캐시로 확인할 수 없다면 CLI 결과도 게시하지 않습니다.
+
+### Claude 상태줄 보조 연결
+
+설정의 Claude 항목에서 **상태줄 보조 연결**을 누르면 Claude Code의 `statusLine`에 Quotra 수집기를 연결합니다.
+기존 상태줄이 있으면 자동 교체하지 않습니다. 보조 연결 해제는 Quotra가 설정한 상태줄만 제거합니다.
+설정의 다른 항목은 보존하며, Quotra 실행 파일의 수집 모드를 사용합니다. 표본은 `CLAUDE_CONFIG_DIR/quotra`에 저장합니다.
+별도 PowerShell 실행 정책 변경이나 스크립트 설치는 필요하지 않습니다.
+
+Claude Code에서 새 세션을 시작하고 응답을 받으면 공식 상태줄 입력의 `rate_limits`에서
+5시간·주간 사용률과 리셋 시각만 저장합니다([공식 상태줄 문서](https://code.claude.com/docs/en/statusline)).
+대화 내용과 토큰은 표본에 저장하지 않습니다. API 키 사용 등으로 한도가 전달되지 않으면 값을 만들지 않습니다.
+OAuth 조회가 실패했을 때에만 **수집 후 2분 이내**, **시작 시점 로그인 파일 지문과 현재 지문이 일치**하는 표본을 사용합니다.
+만료된 창은 제외하며, 원래 수집 시각과 OAuth 실패 사유를 설정에 표시합니다.
+토큰 회전이나 계정 전환으로 로그인 파일이 바뀌면 새 Claude Code 세션을 시작해야 보조 수집이 재개됩니다.
+
+HTTP 429는 사용량 요청의 `Retry-After`를 따라 최소 60초간 다시 조회하지 않습니다.
+`user:profile` 권한이 없는 로그인은 요청 전 안내하며, 웹 HTTP 403은 로그인 만료와 구분합니다.
+실패한 조회와 반복된 같은 상태줄 표본은 예측용 새 표본으로 기록하지 않습니다.
+
+`--provider-test=claude`는 합성 자격증명과 HTTP 대역으로 자동 갱신·토큰 교체·동시 요청·CLI 화면 파서와
+자동 연결 순서·계정 불일치·요청 제한·취소를 점검합니다. 실제 로그인과 네트워크는 사용하지 않습니다.
 `--provider-once=claude`는 실제 기존 로그인을 필요하면 갱신하고 주간/5시간 사용량을 한 번 조회합니다.
 
 로그인이 없거나 만료되면 **설정의 Claude 항목**에 실패 원인과 로그인 안내가 나옵니다.
@@ -226,25 +273,34 @@ API 크레딧은 사용하지 않습니다.
 ## 6. Command Code 실연동
 
 Command Code 공식 사이트의 Studio **Usage** 탭은 요청별 비용·토큰 사용 내역을 보여주고, CLI의 `/usage` 는 크레딧과 주간·5시간 한도를 보여줍니다([Usage 한도 안내](https://commandcode.ai/docs/resources/pricing-limits)).
-공식 [설정 문서](https://commandcode.ai/docs/settings)는 CLI 로그인 정보를 `%USERPROFILE%\.commandcode\auth.json` 에 저장한다고 설명하며,
-`COMMAND_CODE_API_KEY` 환경 변수도 지원합니다. Quotra는 이 로그인 정보를 읽기만 해
-[`CommandCodeUsageSource`](../src/Quotra.WinUI/Services/CommandCodeUsageSource.cs)에서 `api.commandcode.ai` 의 계정 사용량 경로로 주간·5시간 창을 가져옵니다.
+Quotra에서는 **프로바이더 설정…** → **Command Code**에서 [Studio](https://commandcode.ai/docs/studio)의 API 키를 입력하고
+**연결 확인 및 저장**을 누릅니다. [`CommandCodeUsageSource`](../src/Quotra.WinUI/Services/CommandCodeUsageSource.cs)는
+입력한 키로 `api.commandcode.ai`의 계정 사용량을 검증한 뒤, 설정 창이 Windows 자격 증명 보관함에 키를 저장합니다.
+이후 저장된 키로 월간 크레딧·5시간 창을 가져옵니다. CLI·Desktop 로그인 파일과 환경 변수에서는 키를 가져오지 않습니다.
 
 | 항목 | Command Code | OpenCode Go(Quotra 기존 연동) |
 | --- | --- | --- |
 | 사이트/앱의 기준 화면 | [Command Code Studio Usage](https://commandcode.ai/settings/usage), CLI `/usage` | [OpenCode Go 사용량 문서](https://docs.opencode.ai/docs/go/)와 사용량 API |
-| 인증 | 기존 Command Code 로그인 파일 또는 `COMMAND_CODE_API_KEY` | 설정창에 OpenCode Go API 키를 직접 입력 |
-| Quotra 조회 경로 | `GET /alpha/whoami?limits=1` 후 `GET /alpha/billing/credits` | `GET https://opencode.ai/zen/go/v1/usage` |
+| 인증 | 설정창에 Command Code Studio API 키를 직접 입력 | 설정창에 OpenCode Go API 키를 직접 입력 |
+| Quotra 조회 경로 | `GET /alpha/whoami?limits=1` 후 `GET /alpha/billing/credits`, `GET /alpha/billing/subscriptions` | `GET https://opencode.ai/zen/go/v1/usage` |
 | 서비스 한도 | 주간·5시간 롤링 한도와 월간 크레딧 | 5시간·주간·월간 사용 한도 |
-| 위젯 창 | 주간(Primary) + 5시간(Secondary) 표시 | 현재 연결은 월간(Primary)만 표시 |
-| 인증/조회 성격 | CLI 로그인으로 CLI 계정 API 조회 | 설정창에 API 키를 저장하고 Go 사용량 API 조회 |
+| 위젯 창 | 월간 크레딧(Primary) + 5시간(Secondary) 표시; 주간 제한은 설명에 표시 | 현재 연결은 월간(Primary)만 표시 |
+| 인증/조회 성격 | 설정창에 API 키를 저장하고 계정 사용량 API 조회 | 설정창에 API 키를 저장하고 Go 사용량 API 조회 |
 
 Command Code [Provider API 문서](https://commandcode.ai/docs/provider)의 공개 `/provider/v1` 은 **모델 추론 요청**용이며 사용량 조회 API가 아닙니다.
 Quotra의 `/alpha/...` 사용량 경로는 CLI `/usage` 와 같은 계정 한도 데이터를 제공하는 현재 계정 API 경로입니다.
 `alpha` 경로는 별도 공개 API 계약으로 문서화되지 않았으므로 Command Code 측 변경에 따라 고장 날 수 있습니다.
-로그인 파일과 키는 읽기만 하며, Quotra는 토큰을 갱신하거나 로그에 쓰지 않습니다.
+키는 Windows 자격 증명 보관함의 `Quotra.CommandCode` 항목에만 저장하며 JSON·로그에는 쓰지 않습니다.
+검증 실패 시 기존 키는 유지합니다. **연결 해제**하면 키와 표시 값이 제거되고, PC 로그인으로 자동 재연결하지 않습니다.
+Command Code의 `--provider-file` 진단 재정의는 지원하지 않으며, `--provider-url`은 로컬 루프백 주소만 허용합니다.
 
-`--provider-test=commandcode` 는 아직 네트워크 없는 자체 파서를 제공하지 않습니다. 연결 상태는 아래 명령으로 확인합니다.
+월간 사용률은 `credits.monthlyCredits`의 잔여량과 공식 `command-code` 1.82.1 CLI의 플랜별 월간 총량으로 계산합니다.
+추가 구매·무료 크레딧은 월간 구독 풀에 합산하지 않으며, `currentPeriodEnd`를 리셋 시각으로 사용합니다.
+총량은 플랜 기준임을 설명에 표시합니다. 알 수 없는 플랜·비활성 구독·플랜 총량보다 큰 잔여량은 월간 사용률을 만들지 않고 잔여 크레딧을 설명에 표시합니다.
+월간 이력 키에는 계정과 플랜을 포함해 예전 주간 이력 및 다른 계정과 분리합니다.
+
+`--provider-test=commandcode`는 합성 키와 HTTP 대역으로 키 검증·조직 범위·월간/5시간 값·오류 안내·자동 연결 제거를
+네트워크나 실제 자격 증명 보관함 접근 없이 점검합니다. 실제 연결 상태는 설정창에서 키를 저장한 뒤 아래 명령으로 확인합니다.
 
 ```powershell
 $out = 'src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64'

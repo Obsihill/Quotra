@@ -64,7 +64,7 @@ public sealed class ProviderUsage
     /// <summary>마지막 조회 실패 사유(정상이면 null).</summary>
     public string? Error { get; set; }
 
-    /// <summary>값을 가져올 소스가 등록돼 있는지(카탈로그가 아니라 <see cref="Services.UsageService"/> 가 정한다).</summary>
+    /// <summary>소스 등록 시 조회 대기 상태. 로그인이 없거나 취소되면 false, 조회 성공 시 true.</summary>
     [JsonIgnore]
     public bool IsLinked { get; set; }
 
@@ -110,7 +110,7 @@ public sealed class ProviderUsage
     public string StatusText => Error is not null
         ? "조회 오류"
         : !IsLinked
-            ? "미연동"
+            ? "등록 안 됨"
             : HasAnyValue
                 ? "연결됨"
                 : "조회 중";

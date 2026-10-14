@@ -1,5 +1,8 @@
 namespace Quotra.WinUI.Services;
 
+/// <summary>No usable login is registered; distinct from a temporary usage-query failure.</summary>
+internal class ProviderNotConnectedException(string message) : InvalidOperationException(message);
+
 /// <summary>한도 창 하나의 조회 결과.</summary>
 /// <param name="Used">사용률 0~1(남은 양이 아니다).</param>
 /// <param name="ResetsAt">이 창이 리셋되는 시각. 모르면 null.</param>
@@ -18,19 +21,8 @@ public sealed record ProviderSnapshot(
     string? Note = null,
     string? HistoryKey = null,
     string? PrimaryLabel = null,
-    string? SecondaryLabel = null);
-
-/// <summary>Provider website sign-in, separate from API-key input.</summary>
-public interface IWebSessionUsageSource : IUsageSource
-{
-    Uri LoginUri { get; }
-    string SessionCookieName { get; }
-    string? OrganizationCookieName { get; }
-    bool HasSavedSession { get; }
-    Task VerifySessionAsync(string session, string? organizationId, CancellationToken cancellationToken);
-    void SaveSession(string session, string? organizationId);
-    void DeleteSession();
-}
+    string? SecondaryLabel = null,
+    DateTimeOffset? CapturedAt = null);
 
 /// <summary>
 /// **확장 지점** — 프로바이더 한 곳의 사용량을 실제로 가져오는 구현체.

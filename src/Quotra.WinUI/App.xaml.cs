@@ -291,6 +291,12 @@ public partial class App : Application
     {
         string[] args = Environment.GetCommandLineArgs();
 
+        if (args.Contains("--claude-statusline-install"))
+        {
+            try { ClaudeStatusLineBridge.Install(); Log.Write("Claude 상태줄 보조 연결 설정 완료"); Environment.Exit(0); }
+            catch (Exception ex) { Log.Write(ex is InvalidOperationException ? ex.Message : "Claude 상태줄 설정 실패"); Environment.Exit(1); }
+        }
+
         // 진단용 재정의 — --provider-url=<id>=<주소> · --provider-file=<id>=<경로>
         ParseDiagnosticOverride(args, "--provider-url=", url: true);
         ParseDiagnosticOverride(args, "--provider-file=", url: false);

@@ -47,6 +47,14 @@ internal static class ClaudeOAuthSelfTest
             ("usage 403 and 429 do not refresh", UsageNonRetryStatusesAsync),
             ("diagnostic URL requires a test file and never refreshes", DiagnosticUrlAsync),
             ("weekly usage and five-hour fallback parse", UsageParserAsync),
+            ("missing profile scope never queries usage", MissingScopeAsync),
+            ("usage Retry-After prevents repeated polling", UsageBackoffAsync),
+            ("status-line sample age, account binding, and reset handling", StatusLineSamplesAsync),
+            ("status-line setup preserves unrelated and existing settings", StatusLineSettingsAsync),
+            ("native collector excludes secrets and never rebinds sessions", StatusLineCollectorAsync),
+            ("sampler does not record failed or duplicate observations", SamplerObservationsAsync),
+            ("unregistered login clears stale values and reconnects after success", ConnectionStatesAsync),
+            ("missing login directs users to Claude Code", MissingLoginAsync),
         ];
 
         int passed = 0;
@@ -251,7 +259,7 @@ internal static class ClaudeOAuthSelfTest
         Exception first = await CaptureFailureAsync(() => client.GetAsync(path, CancellationToken.None)).ConfigureAwait(false);
         Exception second = await CaptureFailureAsync(() => client.GetAsync(path, CancellationToken.None)).ConfigureAwait(false);
 
-        Ensure(first is InvalidOperationException && second is InvalidOperationException && requests == 1,
+        Ensure(first is ProviderNotConnectedException && second is ProviderNotConnectedException && requests == 1,
             "Revoked credentials were retried or did not produce a sanitized error.");
         string diagnostics = first.Message + "\n" + second.Message + "\n" + string.Join('\n', logs);
         AssertNoSecrets(diagnostics);
@@ -573,6 +581,181 @@ internal static class ClaudeOAuthSelfTest
         ProviderSnapshot fallback = ClaudeUsageSource.ParseUsage(onlyFiveHour.RootElement, "pro");
         Ensure(fallback.PrimaryLabel == "5시간" && fallback.Primary?.Used == 0.25 && fallback.Secondary is null,
             "Five-hour-only usage did not become the primary fallback.");
+        return Task.CompletedTask;
+    }
+
+    private static async Task MissingScopeAsync(string directory)
+    {
+        string path = CredentialPath(directory);
+        WriteCredential(path, DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeMilliseconds());
+        var root = JsonNode.Parse(File.ReadAllText(path))!;
+        root["claudeAiOauth"]!["scopes"] = new JsonArray("user:inference");
+        File.WriteAllText(path, root.ToJsonString());
+        int requests = 0;
+        using var http = CreateHttp(new FakeHandler((_, _) =>
+        {
+            requests++;
+            throw new InvalidOperationException("Unexpected usage request.");
+        }));
+        Exception failure = await CaptureFailureAsync(() => new ClaudeUsageSource(http).FetchOAuthAsync(path, CancellationToken.None));
+        Ensure(requests == 0 && failure.Message.Contains("user:profile"), "Missing usage scope was not diagnosed locally.");
+    }
+
+    private static async Task UsageBackoffAsync(string directory)
+    {
+        string path = CredentialPath(directory);
+        WriteCredential(path, DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeMilliseconds());
+        int requests = 0;
+        using var http = CreateHttp(new FakeHandler((_, _) =>
+        {
+            requests++;
+            HttpResponseMessage response = JsonResponse(HttpStatusCode.TooManyRequests, "{}");
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMinutes(10));
+            return Task.FromResult(response);
+        }));
+        var source = new ClaudeUsageSource(http);
+        await CaptureFailureAsync(() => source.FetchOAuthAsync(path, CancellationToken.None));
+        await CaptureFailureAsync(() => source.FetchOAuthAsync(path, CancellationToken.None));
+        Ensure(requests == 1, "Usage Retry-After was ignored.");
+    }
+
+    private static Task StatusLineSamplesAsync(string directory)
+    {
+        string path = CredentialPath(directory);
+        WriteCredential(path, Now.AddHours(2).ToUnixTimeMilliseconds());
+        string collectorDirectory = Path.Combine(directory, "quotra");
+        Directory.CreateDirectory(collectorDirectory);
+        string samplePath = Path.Combine(collectorDirectory, "statusline-usage.json");
+        var sample = new JsonObject
+        {
+            ["captured_at"] = Now.AddSeconds(-30).ToString("O"),
+            ["credential_fingerprint"] = ClaudeStatusLineBridge.Fingerprint(path),
+            ["five_hour"] = new JsonObject { ["used_percentage"] = 12, ["resets_at"] = Now.AddHours(1).ToUnixTimeSeconds() },
+            ["seven_day"] = new JsonObject { ["used_percentage"] = 42, ["resets_at"] = Now.AddDays(2).ToUnixTimeSeconds() },
+        };
+        void Save() => File.WriteAllText(samplePath, sample.ToJsonString());
+        Save();
+        ProviderSnapshot? value = ClaudeStatusLineBridge.Read(path, Now);
+        Ensure(value?.Primary?.Used == 0.42 && value.Secondary?.Used == 0.12 && value.CapturedAt == Now.AddSeconds(-30),
+            "Imported quota or collection timestamp is wrong.");
+        sample["credential_fingerprint"] = "OTHER-ACCOUNT"; Save();
+        Ensure(ClaudeStatusLineBridge.Read(path, Now) is null, "Another login's sample was accepted.");
+        sample["credential_fingerprint"] = ClaudeStatusLineBridge.Fingerprint(path);
+        sample["captured_at"] = Now.AddMinutes(-3).ToString("O"); Save();
+        Ensure(ClaudeStatusLineBridge.Read(path, Now) is null, "A stale sample was accepted as live.");
+        sample["captured_at"] = Now.AddMinutes(1).ToString("O"); Save();
+        Ensure(ClaudeStatusLineBridge.Read(path, Now) is null, "A future sample was accepted.");
+        sample["captured_at"] = Now.ToString("O");
+        sample["seven_day"]!["resets_at"] = Now.AddSeconds(-1).ToUnixTimeSeconds(); Save();
+        Ensure(ClaudeStatusLineBridge.Read(path, Now)?.PrimaryLabel == "5시간", "An expired weekly window was retained.");
+        sample["five_hour"]!["used_percentage"] = 101; Save();
+        Ensure(ClaudeStatusLineBridge.Read(path, Now) is null, "Invalid quota was clamped into a fake valid value.");
+        File.WriteAllText(samplePath, "{}");
+        Ensure(ClaudeStatusLineBridge.Read(path, Now) is null, "Malformed sample was not ignored.");
+        return Task.CompletedTask;
+    }
+
+    private static Task StatusLineSettingsAsync(string directory)
+    {
+        string settingsPath = Path.Combine(directory, "settings.json");
+        File.WriteAllText(settingsPath, """{"permissions":{"allow":["Read"]},"future":{"keep":true}}""");
+        ClaudeStatusLineBridge.Install(directory);
+        ClaudeStatusLineBridge.Install(directory);
+        var installed = JsonNode.Parse(File.ReadAllText(settingsPath))!;
+        Ensure(installed["future"]!["keep"]!.GetValue<bool>() && installed["permissions"]!["allow"]![0]!.GetValue<string>() == "Read",
+            "Status-line setup destroyed unrelated settings.");
+        ClaudeStatusLineBridge.Remove(directory);
+        var restored = JsonNode.Parse(File.ReadAllText(settingsPath))!;
+        Ensure(restored["statusLine"] is null && restored["future"]!["keep"]!.GetValue<bool>(), "Removal did not preserve settings.");
+        const string existing = """{"statusLine":{"type":"command","command":"my-own-statusline","padding":3}}""";
+        File.WriteAllText(settingsPath, existing);
+        try { ClaudeStatusLineBridge.Install(directory); throw new Exception("Existing status line was overwritten."); }
+        catch (InvalidOperationException) { }
+        ClaudeStatusLineBridge.Remove(directory);
+        Ensure(File.ReadAllText(settingsPath) == existing, "Existing user status line was changed.");
+        return Task.CompletedTask;
+    }
+
+    private static async Task StatusLineCollectorAsync(string directory)
+    {
+        string path = CredentialPath(directory);
+        WriteCredential(path, DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeMilliseconds());
+        ClaudeStatusLineBridge.Install(directory);
+        async Task Invoke(string data)
+        {
+            using var process = new Process { StartInfo = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "QuotraWinUI.exe"))
+            {
+                UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            } };
+            process.StartInfo.ArgumentList.Add("--claude-statusline");
+            process.StartInfo.Environment["CLAUDE_CONFIG_DIR"] = directory;
+            Ensure(process.Start(), "Collector did not start.");
+            await process.StandardInput.WriteAsync(data); process.StandardInput.Close();
+            Task<string> output = process.StandardOutput.ReadToEndAsync();
+            Task<string> errors = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            catch { process.Kill(entireProcessTree: true); throw; }
+            Ensure(process.ExitCode == 0 && string.IsNullOrWhiteSpace(await errors), "Collector failed.");
+            Ensure(!(await output).Contains("SECRET-PROMPT"), "Collector printed session content.");
+        }
+        await Invoke("""{"session_id":"test-session","model":{"display_name":"Claude"}}""");
+        long reset = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
+        string payload = JsonSerializer.Serialize(new { session_id = "test-session", prompt = "SECRET-PROMPT", token = "SECRET-TOKEN",
+            rate_limits = new { five_hour = new { used_percentage = 23, resets_at = reset } } });
+        await Invoke(payload);
+        string samplePath = Path.Combine(directory, "quotra", "statusline-usage.json");
+        string sample = File.ReadAllText(samplePath);
+        Ensure(!sample.Contains("SECRET") && ClaudeStatusLineBridge.Read(path)?.Primary?.Used == 0.23,
+            "Collector leaked input or did not produce a usable sample.");
+        WriteCredential(path, DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeMilliseconds(), accessToken: AccessB);
+        await Invoke(payload);
+        Ensure(File.ReadAllText(samplePath) == sample && ClaudeStatusLineBridge.Read(path) is null,
+            "An existing session was rebound after a login change.");
+    }
+
+    private static Task SamplerObservationsAsync(string directory)
+    {
+        var history = new Quotra.Forecast.UsageHistory();
+        var sampler = new UsageSampler(history, Path.Combine(directory, "history.json"));
+        var provider = new Quotra.WinUI.Models.ProviderUsage { Id = "claude", Primary = 0.42, UpdatedAt = Now };
+        Ensure(sampler.Sample([provider]), "A measured observation was not sampled.");
+        sampler.Sample([provider]);
+        Ensure(history.TotalSamples == 1 && history.Points("claude", Quotra.Forecast.UsageWindow.Primary)[0].At == Now,
+            "A cached observation became a duplicate or had its timestamp changed.");
+        provider.UpdatedAt = Now.AddMinutes(10); provider.Error = "HTTP 429";
+        Ensure(!sampler.Sample([provider]) && history.TotalSamples == 1, "A failed refresh manufactured a new observation.");
+        return Task.CompletedTask;
+    }
+
+    private static async Task MissingLoginAsync(string directory)
+    {
+        using var http = CreateHttp(new FakeHandler((_, _) => throw new InvalidOperationException("Unexpected HTTP request.")));
+        var source = new ClaudeUsageSource(http);
+        source.ApplyDiagnostics(null, CredentialPath(directory));
+        Exception failure = await CaptureFailureAsync(() => source.FetchAsync(CancellationToken.None));
+        Ensure(failure is ProviderNotConnectedException && failure.Message.Contains("Claude Code")
+            && !failure.Message.Contains("설정에서"), "Missing credentials did not direct users to the external app.");
+    }
+
+    private static Task ConnectionStatesAsync(string directory)
+    {
+        var provider = new Quotra.WinUI.Models.ProviderUsage
+        {
+            Id = "claude", IsLinked = true, Primary = 0.4, Secondary = 0.1,
+            UpdatedAt = Now, PrimaryResetsAt = Now.AddDays(1), HistoryKey = "old-account",
+        };
+        UsageService.ApplyFailure(provider, new ProviderNotConnectedException("Claude Code에서 로그인한 뒤 새로고침하세요."));
+        Ensure(provider.StatusText == "등록 안 됨" && !provider.HasAnyValue && provider.UpdatedAt is null
+            && provider.Error is null && provider.HistoryKey is null && provider.PrimaryResetsAt is null,
+            "An unregistered login retained connected values or appeared as a query failure.");
+        UsageService.Apply(provider, new ProviderSnapshot(Primary: new WindowUsage(0.25, Now.AddDays(2))), Now.AddMinutes(1));
+        Ensure(provider.IsLinked && provider.StatusText == "연결됨" && provider.Primary == 0.25,
+            "A successful sign-in did not restore the connected state.");
+        UsageService.ApplyFailure(provider, new InvalidOperationException("HTTP 429"));
+        Ensure(provider.IsLinked && provider.Primary == 0.25 && provider.Error == "HTTP 429",
+            "A temporary query failure incorrectly unregistered the account.");
         return Task.CompletedTask;
     }
 

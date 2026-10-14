@@ -37,7 +37,7 @@ internal static class ClaudeDesktopSessionReader
                         or CryptographicException or FormatException or InvalidOperationException or DllNotFoundException)
                     {
                         error = ex is InvalidOperationException ? ex.Message
-                            : "Claude 데스크톱의 보호된 로그인 정보를 읽을 수 없습니다. 설정에서 Claude 로그인을 사용하세요.";
+                            : "Claude Desktop의 보호된 로그인 정보를 읽을 수 없습니다. Claude Code에서 로그인한 뒤 새로고침하세요.";
                     }
                 }
             }
@@ -78,18 +78,18 @@ internal static class ClaudeDesktopSessionReader
         {
             // READONLY; SQLite reads the live WAL too. Neither desktop cookies nor auth are changed.
             if (Sqlite.Open(path, out database, 1, IntPtr.Zero) != 0)
-                throw new InvalidOperationException("Claude 로그인 저장소에 접근할 수 없습니다. 설정에서 Claude 로그인을 사용하세요.");
+                throw new InvalidOperationException("Claude Desktop 로그인 저장소에 접근할 수 없습니다. Claude Code에서 로그인한 뒤 새로고침하세요.");
             Sqlite.BusyTimeout(database, 500);
             long expires = (DateTimeOffset.UtcNow - new DateTimeOffset(1601, 1, 1, 0, 0, 0, TimeSpan.Zero)).Ticks / 10;
             string sql = "SELECT host_key,value,encrypted_value FROM cookies "
                 + $"WHERE name='{name}' AND host_key IN ('claude.ai','.claude.ai') "
                 + $"AND (expires_utc=0 OR expires_utc>{expires}) ORDER BY last_access_utc DESC LIMIT 1";
             if (Sqlite.Prepare(database, sql, -1, out statement, IntPtr.Zero) != 0)
-                throw new InvalidOperationException("Claude 로그인 저장소 형식을 읽을 수 없습니다. 설정에서 Claude 로그인을 사용하세요.");
+                throw new InvalidOperationException("Claude Desktop 로그인 저장소 형식을 읽을 수 없습니다. Claude Code에서 로그인한 뒤 새로고침하세요.");
             int step = Sqlite.Step(statement);
             if (step == 101) return null; // DONE: no live session cookie.
             if (step != 100)
-                throw new InvalidOperationException("Claude 로그인 저장소가 잠겨 있습니다. Claude를 종료한 뒤 새로고침하거나 설정에서 로그인하세요.");
+                throw new InvalidOperationException("Claude Desktop 로그인 저장소가 잠겨 있습니다. Claude Desktop을 종료한 뒤 새로고침하세요.");
             string host = Marshal.PtrToStringUTF8(Sqlite.ColumnText(statement, 0)) ?? "";
             string plaintext = Marshal.PtrToStringUTF8(Sqlite.ColumnText(statement, 1)) ?? "";
             if (!string.IsNullOrEmpty(plaintext)) return ValidateSession(plaintext);
@@ -110,7 +110,7 @@ internal static class ClaudeDesktopSessionReader
     {
         byte[] clear;
         if (encrypted.AsSpan().StartsWith("v20"u8))
-            throw new InvalidOperationException("Claude의 앱 전용 암호화로 자동 연결할 수 없습니다. 설정에서 Claude 로그인을 사용하세요.");
+            throw new InvalidOperationException("Claude Desktop의 앱 전용 암호화로 자동 연결할 수 없습니다. Claude Code에서 로그인한 뒤 새로고침하세요.");
         if (encrypted.AsSpan().StartsWith("v10"u8) || encrypted.AsSpan().StartsWith("v11"u8))
         {
             if (encrypted.Length < 31) throw new CryptographicException();
@@ -144,7 +144,7 @@ internal static class ClaudeDesktopSessionReader
     internal static string ValidateSession(string session)
     {
         if (session.Length is < 8 or > 8192 || session.Any(c => c <= ' ' || c >= 127 || c is ';' or ','))
-            throw new InvalidOperationException("Claude 로그인 정보가 올바르지 않습니다. 설정에서 다시 로그인하세요.");
+            throw new InvalidOperationException("Claude Desktop 로그인 정보가 올바르지 않습니다. Claude Desktop에서 다시 로그인한 뒤 새로고침하세요.");
         return session;
     }
 

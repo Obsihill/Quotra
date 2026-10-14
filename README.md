@@ -24,7 +24,7 @@ Windows 11 스타일의 **Desktop Acrylic 반투명 표면 · 차분한 배터�
 
 | 기능 | 상태 |
 | --- | --- |
-| **Codex·Claude·Command Code 실연동** | Codex·Claude 데스크톱/CLI와 Command Code CLI 로그인을 탐색해 한도를 조회. Claude 자동 연결 실패 시 설정에서 직접 로그인 ([docs/providers.md](docs/providers.md)) |
+| **Codex·Claude·Command Code 실연동** | Codex·Claude는 데스크톱/CLI 로그인을 탐색하고, Command Code는 설정에서 API 키를 입력해 한도를 조회. Claude는 PC의 기존 인증을 자동으로 인식 ([docs/providers.md](docs/providers.md)) |
 | **가로 배터리 바** | 서비스 배지·이름·한도 종류를 정렬. 24dip 높이의 배터리가 남은 한도를 왼쪽부터 채우고, 그 안에 숫자가 들어간다. 색은 등급(정상/주의/위험) |
 | **반투명 배경** | 창 뒤에 Desktop Acrylic 블러를 적용하고 루트·패널은 투명하게 유지합니다. 지원하지 않는 환경에서는 다크/라이트 불투명 색으로 대체 |
 | **바깥에는 아무 줄도 없음** | 평소 노출은 배터리 안 `20%/10분 → 2시간 25분 남음`(예측 감소량)뿐. 배터리 밖에 남는 줄이 없다 |
@@ -66,7 +66,7 @@ src\Quotra.WinUI\bin\x64\Release\net10.0-windows10.0.22000.0\win-x64\QuotraWinUI
 | 플랫폼 | x64 |
 | Windows App SDK | 2.5.1 — **자체 포함**(`WindowsAppSDKSelfContained=true`)이라 Windows App Runtime 설치가 필요 없습니다 |
 
-종료는 우클릭 메뉴의 **종료**로 합니다. 기본 카탈로그에는 ChatGPT, Claude, Command Code, OpenCode Go가 있습니다. OpenCode Go는 API 키 연결이 필요합니다.
+종료는 우클릭 메뉴의 **종료**로 합니다. 기본 카탈로그에는 ChatGPT, Claude, Command Code, OpenCode Go가 있습니다. Command Code와 OpenCode Go는 **프로바이더 설정…**에서 API 키 연결이 필요합니다.
 다른 서비스를 추가하려면 `Data\providers.json` 정의와 소스를 함께 연결합니다([docs/providers.md](docs/providers.md)).
 
 UI를 검증할 때는 `tools\verify-fluent.ps1`을 실행합니다. 기존 Release 빌드를 재사용하고 검증용 데이터와 로그는 임시 폴더에 저장합니다.
@@ -75,7 +75,7 @@ UI를 검증할 때는 `tools\verify-fluent.ps1`을 실행합니다. 기존 Rele
 
 서명 준비와 태그 배포 절차는 [docs/releasing.md](docs/releasing.md)를 참고하세요.
 
-- 버전은 `v주.부.수`로 올립니다. 현재 버전은 `1.0.2`이며, 버그 수정은 패치, 기능 추가는 부 버전, 호환성을 깨는 변경은 주 버전을 올립니다.
+- 버전은 `v주.부.수`로 올립니다. 현재 소스 버전은 `1.1.2`이며, 버그 수정은 패치, 기능 추가는 부 버전, 호환성을 깨는 변경은 주 버전을 올립니다.
 - GitHub Releases에서 Windows 11 x64용 `Quotra-Setup-버전-win-x64.exe`를 받아 설치합니다. 설치 없이 실행하려면 포터블 ZIP을 폴더째 압축 해제한 뒤 `QuotraWinUI.exe`를 실행합니다.
 - 설치 프로그램은 관리자 권한 없이 설치하고 시작 메뉴 바로가기를 만듭니다. 업데이트는 새 설치 파일을 기존 설치 위에 실행합니다. 설정과 사용량 이력은 제거 후에도 기본 보존됩니다.
 - 현재 공개된 설치 파일과 앱에는 코드 서명이 적용되지 않았습니다. Windows에서 게시자 확인 또는 SmartScreen 경고가 표시될 수 있습니다. 다운로드한 파일은 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다. 서명 인증서를 준비한 뒤 자동 릴리스에서 서명을 적용합니다.
@@ -244,7 +244,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 **제약**
 
-1. **로그인과 사용량 조회의 호환성은 제공자의 변경에 영향을 받습니다.** Codex는 공식 App Server의 계정 조회를 우선 사용하고, 실패하면 기존 로그인 파일과 HTTP 경로를 사용합니다. Claude 웹/OAuth와 Command Code `/alpha` 경로는 공개 API 계약이 보장되지 않습니다. 오류 원인과 해결 방법은 프로바이더 설정에서 확인하세요. Claude Code 로그인은 저장된 갱신 토큰으로 자동 갱신하고 새 토큰을 기존 로그인 파일에 저장합니다. 갱신까지 거부된 경우 재로그인이 필요합니다. Quotra의 Claude 웹 로그인은 Windows 자격 증명 보관함에 저장하며, 토큰은 로그에 기록하지 않습니다.
+1. **로그인과 사용량 조회의 호환성은 제공자의 변경에 영향을 받습니다.** Codex는 공식 App Server의 계정 조회를 우선 사용하고, 실패하면 기존 로그인 파일과 HTTP 경로를 사용합니다. Claude 웹/OAuth와 Command Code `/alpha` 경로는 공개 API 계약이 보장되지 않습니다. 오류 원인과 해결 방법은 프로바이더 설정에서 확인하세요. Claude Code 로그인은 저장된 갱신 토큰으로 자동 갱신하고 새 토큰을 기존 로그인 파일에 저장합니다. 갱신까지 거부된 경우 재로그인이 필요합니다. Quotra에는 별도 Claude 로그인 기능이 없으며 Claude Code·Claude Desktop에서 로그인한 뒤 새로고침합니다. 토큰은 로그에 기록하지 않습니다.
 2. 예측은 **앱이 켜져 있는 동안의 표본**만 씁니다. 꺼져 있던 구간은 비어 있고, 다시 켜면 그 구멍은 예측에서 잘라냅니다(메우지는 않습니다).
 3. 리셋 시각은 소스가 주는 `ResetsAt` 을 씁니다 — 소스가 안 주면 `리셋 정보 없음` 이라고 표시합니다(추측하지 않습니다).
 4. 프로바이더가 6곳을 넘으면 바가 화면 폭을 넘습니다(가로 배치라 줄바꿈 없음).

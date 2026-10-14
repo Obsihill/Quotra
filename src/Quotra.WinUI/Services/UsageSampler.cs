@@ -115,16 +115,18 @@ public sealed class UsageSampler
 
         foreach (ProviderUsage provider in providers)
         {
+            // Failed refreshes and imported observations must not become new, synthetic samples.
+            if (provider.Error is not null || provider.UpdatedAt is not { } capturedAt) continue;
             // 값이 없는 프로바이더는 표본을 남기지 않는다 — 0 으로 기록하면 예측이 거짓말을 한다.
             if (provider.Primary is { } primary)
             {
-                _history.Record(provider.PrimaryHistoryKey, UsageWindow.Primary, primary, now);
+                _history.Record(provider.PrimaryHistoryKey, UsageWindow.Primary, primary, capturedAt);
                 recorded = true;
             }
 
             if (provider.Secondary is { } secondary)
             {
-                _history.Record(provider.PrimaryHistoryKey, UsageWindow.Secondary, secondary, now);
+                _history.Record(provider.PrimaryHistoryKey, UsageWindow.Secondary, secondary, capturedAt);
                 recorded = true;
             }
         }

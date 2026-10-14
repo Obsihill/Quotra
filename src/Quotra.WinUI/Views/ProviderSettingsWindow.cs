@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Quotra.WinUI.Models;
 using Quotra.WinUI.Services;
 using Windows.Graphics;
 
@@ -22,14 +23,21 @@ public sealed class ProviderSettingsWindow : Window
     private readonly Button _save = new() { Content = "연결 확인 및 저장" };
     private readonly Button _remove = new() { Content = "연결 해제" };
     private readonly Button _refresh = new() { Content = "새로고침" };
-    private readonly Button _login = new() { Content = "Claude 로그인" };
+    private readonly Button _statusLine = new() { Content = "상태줄 보조 연결" };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly StackPanel _detail = new() { Spacing = 10 };
 
     private bool _closed;
     private string? _selectedId;
-    private ProviderLoginWindow? _loginWindow;
     private readonly List<(string Id, IUsageSource Source)> _listedSources = [];
+    private readonly Dictionary<string, TextBlock> _listStatuses = [];
+
+    private IEnumerable<ProviderUsage> SettingsProviders => _usage.Providers.OrderBy(provider => provider.Id switch
+    {
+        "codex" => 0,
+        "claude" => 1,
+        _ => 2,
+    });
 
     public ProviderSettingsWindow(UsageService usage)
     {
@@ -60,9 +68,10 @@ public sealed class ProviderSettingsWindow : Window
         {
             Orientation = Orientation.Horizontal,
             Spacing = 12,
-            Children = { _save, _login, _remove, _refresh },
+            Children = { _save, _remove, _refresh },
         });
         _detail.Children.Add(_status);
+        _detail.Children.Add(_statusLine);
 
         var root = new Grid { Padding = new Thickness(20), ColumnSpacing = 20 };
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -83,13 +92,27 @@ public sealed class ProviderSettingsWindow : Window
             try { await _usage.RefreshAsync(); }
             finally { if (!_closed) _refresh.IsEnabled = true; }
         };
-        _login.Click += (_, _) => Login();
+        _statusLine.Click += (_, _) =>
+        {
+            try
+            {
+                if (ClaudeStatusLineBridge.IsInstalled) ClaudeStatusLineBridge.Remove();
+                else ClaudeStatusLineBridge.Install();
+                _status.Text = ClaudeStatusLineBridge.IsInstalled
+                    ? "상태줄 보조 연결을 설정했습니다. Claude Code에서 새 세션을 시작하면 응답 후 한도를 받습니다."
+                    : "Quotra 상태줄 보조 연결을 해제했습니다.";
+                UpdateStatusLineButton();
+            }
+            catch (Exception ex)
+            {
+                _status.Text = ex is InvalidOperationException ? ex.Message : "Claude 상태줄 설정을 변경할 수 없습니다. 설정 폴더 권한을 확인하세요.";
+            }
+        };
         _usage.Updated += OnUsageUpdated;
         Closed += (_, _) =>
         {
             _closed = true;
             _usage.Updated -= OnUsageUpdated;
-            _loginWindow?.Close();
         };
 
         BuildProviderList();
@@ -110,7 +133,7 @@ public sealed class ProviderSettingsWindow : Window
             lines.Add($"마지막 조회 {refreshed.LocalDateTime:yyyy-MM-dd HH:mm}");
         }
 
-        foreach (var provider in _usage.Providers)
+        foreach (var provider in SettingsProviders)
         {
             string status = provider.Error is not null
                 ? (provider.HasAnyValue ? "조회 실패 · 이전 성공 값 유지" : "연결 확인 필요")
@@ -119,6 +142,7 @@ public sealed class ProviderSettingsWindow : Window
                 ? $" · 성공 {at.LocalDateTime:HH:mm}"
                 : string.Empty;
             lines.Add($"{provider.Name}: {status}{updated}");
+            if (_listStatuses.TryGetValue(provider.Id, out TextBlock? label)) label.Text = status;
             if (provider.Error is { } error) lines.Add($"  {error}");
         }
 
@@ -135,12 +159,23 @@ public sealed class ProviderSettingsWindow : Window
     {
         _providerList.Items.Clear();
         _listedSources.Clear();
+        _listStatuses.Clear();
 
-        foreach (var provider in _usage.Providers)
+        foreach (var provider in SettingsProviders)
         {
             if (!_usage.Sources.TryGetValue(provider.Id, out IUsageSource? source)) continue;
             _listedSources.Add((provider.Id, source));
-            _providerList.Items.Add(provider.Name);
+            var status = new TextBlock { Text = provider.StatusText, FontSize = 12, Opacity = 0.7 };
+            _listStatuses[provider.Id] = status;
+            _providerList.Items.Add(new ListViewItem
+            {
+                Margin = new Thickness(0, _listedSources.Count == 3 ? 16 : 0, 0, 0),
+                Content = new StackPanel
+                {
+                    Spacing = 3,
+                    Children = { new TextBlock { Text = provider.Name }, status },
+                },
+            });
         }
 
         if (_listedSources.Count == 0)
@@ -151,7 +186,7 @@ public sealed class ProviderSettingsWindow : Window
             _vaultNote.Visibility = Visibility.Collapsed;
             _save.Visibility = Visibility.Collapsed;
             _remove.Visibility = Visibility.Collapsed;
-            _login.Visibility = Visibility.Collapsed;
+            _statusLine.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -174,21 +209,17 @@ public sealed class ProviderSettingsWindow : Window
         _title.Text = _usage.Providers.First(p => p.Id == id).Name;
         bool keyed = source is IKeyedUsageSource;
         _key.Visibility = _save.Visibility = keyed ? Visibility.Visible : Visibility.Collapsed;
-        _vaultNote.Visibility = source is IKeyedUsageSource or IWebSessionUsageSource ? Visibility.Visible : Visibility.Collapsed;
-        _remove.Visibility = source is IKeyedUsageSource or IWebSessionUsageSource ? Visibility.Visible : Visibility.Collapsed;
-        _login.Visibility = source is IWebSessionUsageSource ? Visibility.Visible : Visibility.Collapsed;
-        _login.Content = $"{source.ShortName} 로그인";
-        _remove.Content = source is IWebSessionUsageSource ? "Quotra 로그인 삭제" : "연결 해제";
+        _vaultNote.Visibility = keyed ? Visibility.Visible : Visibility.Collapsed;
+        _remove.Visibility = keyed ? Visibility.Visible : Visibility.Collapsed;
+        _statusLine.Visibility = source is ClaudeUsageSource ? Visibility.Visible : Visibility.Collapsed;
+        UpdateStatusLineButton();
         _hint.Text = source switch
         {
             IKeyedUsageSource api => $"{api.KeyHint}를 입력하세요.",
-            IWebSessionUsageSource => "Claude 데스크톱과 Claude Code 로그인을 자동으로 찾습니다. 연결되지 않으면 아래 로그인 버튼으로 연결하세요.",
+            ClaudeUsageSource => "이 PC의 Claude Code·Claude Desktop 기존 로그인을 자동으로 확인합니다. 직접 조회가 실패하면 설치된 Claude Code의 /usage와 같은 계정의 Desktop 로그인을 확인합니다. 로그인이 없다면 Claude Code 또는 Desktop에서 구독 계정으로 로그인한 뒤 새로고침하세요.",
             CodexUsageSource => "Codex 데스크톱·CLI의 로그인 저장소와 CODEX_HOME 폴더를 자동으로 확인합니다. Codex에서 ChatGPT 계정으로 로그인한 뒤 새로고침하세요.",
             _ => "설치된 클라이언트의 기존 로그인 정보를 자동으로 확인합니다. 로그인한 뒤 새로고침하세요.",
         };
-        _vaultNote.Text = source is IWebSessionUsageSource
-            ? "Quotra 로그인은 사용량 조회를 확인한 뒤 Windows 자격 증명 보관함에 저장됩니다. 기존 앱 로그인 파일은 변경하지 않습니다."
-            : "키는 조회 성공을 확인한 뒤 Windows 자격 증명 보관함에 저장됩니다.";
         if (source is IKeyedUsageSource apiSource) _key.PlaceholderText = apiSource.KeyHint;
         _key.Password = string.Empty;
         UpdateSelectedStatus();
@@ -200,26 +231,20 @@ public sealed class ProviderSettingsWindow : Window
         var provider = _usage.Providers.First(p => p.Id == selected.Id);
         string updated = provider.UpdatedAt is { } at ? $"마지막 성공 {at.LocalDateTime:yyyy-MM-dd HH:mm}" : "성공한 조회 없음";
         _status.Text = $"{provider.StatusText} · {updated}" + (provider.Error is null ? string.Empty : $"\n{provider.Error}");
+        if (!provider.IsLinked && !string.IsNullOrWhiteSpace(provider.Note)) _status.Text += "\n" + provider.Note;
+        if (provider.IsLinked && selected.Source is ClaudeUsageSource or CommandCodeUsageSource) _status.Text += "\n" + provider.Note;
         try
         {
             if (selected.Source is IKeyedUsageSource keyed && keyed.LoadKey() is not null) _status.Text += "\n저장된 키가 있습니다. 새 키를 입력하면 교체합니다.";
-            if (selected.Source is IWebSessionUsageSource web) _remove.IsEnabled = web.HasSavedSession;
         }
         catch (Exception ex) { _status.Text += ex is InvalidOperationException ? $"\n{ex.Message}" : "\n저장된 자격 증명을 읽을 수 없습니다."; }
     }
 
-    private void Login()
+    private void UpdateStatusLineButton()
     {
-        if (Selected is not { } selected || selected.Source is not IWebSessionUsageSource source) return;
-        if (_loginWindow is not null) { _loginWindow.Activate(); return; }
-        var window = _loginWindow = new ProviderLoginWindow(source);
-        window.Connected += async (_, _) =>
-        {
-            _usage.ClearValues(selected.Id);
-            await _usage.RefreshAsync();
-        };
-        window.Closed += (_, _) => _loginWindow = null;
-        window.Activate();
+        try { _statusLine.Content = ClaudeStatusLineBridge.IsInstalled ? "상태줄 보조 연결 해제" : "상태줄 보조 연결"; }
+        catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException or UnauthorizedAccessException
+            or System.Text.Json.JsonException) { _statusLine.Content = "상태줄 보조 연결"; }
     }
 
     private async Task SaveAsync()
@@ -279,13 +304,10 @@ public sealed class ProviderSettingsWindow : Window
         try
         {
             if (selected.Source is IKeyedUsageSource keyed) keyed.DeleteKey();
-            else if (selected.Source is IWebSessionUsageSource web) web.DeleteSession();
             else return;
             _key.Password = string.Empty;
             _usage.ClearValues(selected.Id);
-            _status.Text = selected.Source is IWebSessionUsageSource
-                ? "Quotra의 저장된 로그인을 삭제했습니다. 새로고침하면 데스크톱·CLI 로그인을 다시 자동으로 찾습니다."
-                : "연결을 해제하고 저장된 키를 삭제했습니다.";
+            _status.Text = "연결을 해제하고 저장된 키를 삭제했습니다.";
         }
         catch
         {

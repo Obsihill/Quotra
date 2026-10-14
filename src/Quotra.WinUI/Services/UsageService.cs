@@ -190,8 +190,9 @@ public sealed class UsageService
                 }
                 else
                 {
-                    provider.Error = task.Exception?.GetBaseException().Message ?? "알 수 없는 오류";
-                    Log.Write($"조회 실패: {provider.Name} — {provider.Error}");
+                    Exception failure = task.Exception?.GetBaseException() ?? new InvalidOperationException("알 수 없는 오류");
+                    ApplyFailure(provider, failure);
+                    Log.Write($"{(failure is ProviderNotConnectedException ? "등록 안 됨" : "조회 실패")}: {provider.Name} — {failure.Message}");
                 }
             }
 
@@ -206,10 +207,28 @@ public sealed class UsageService
         }
     }
 
-    private static void Apply(ProviderUsage provider, ProviderSnapshot snapshot, DateTimeOffset now)
+    internal static void ApplyFailure(ProviderUsage provider, Exception failure)
     {
+        if (failure is not ProviderNotConnectedException)
+        {
+            provider.Error = failure.Message;
+            return;
+        }
+        provider.IsLinked = false;
+        provider.Primary = provider.Secondary = null;
+        provider.PrimaryResetsAt = provider.SecondaryResetsAt = null;
+        provider.UpdatedAt = null;
+        provider.HistoryKey = null;
+        provider.Plan = provider.CatalogPlan;
+        provider.Note = failure.Message;
         provider.Error = null;
-        provider.UpdatedAt = now;
+    }
+
+    internal static void Apply(ProviderUsage provider, ProviderSnapshot snapshot, DateTimeOffset now)
+    {
+        provider.IsLinked = true;
+        provider.Error = null;
+        provider.UpdatedAt = snapshot.CapturedAt ?? now;
 
         provider.Primary = snapshot.Primary is { } primary ? Math.Clamp(primary.Used, 0, 1) : null;
         provider.PrimaryResetsAt = snapshot.Primary?.ResetsAt;

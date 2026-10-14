@@ -46,9 +46,11 @@ internal sealed class ClaudeOAuthClient(HttpClient http, Action<string>? log = n
             }
             if (!NeedsRefresh(current, rejectedAccessToken)) return current.Credential;
             if (current.RefreshToken is null)
-                throw new InvalidOperationException("Claude 로그인 갱신 토큰이 없습니다. Claude Code 또는 설정에서 다시 로그인하세요.");
+                throw new ProviderNotConnectedException("Claude 로그인 갱신 토큰이 없습니다. Claude Code에서 /login으로 다시 로그인한 뒤 새로고침하세요.");
             if (_failures.TryGetValue(path, out Failure? failure) && failure.Fingerprint == current.Fingerprint && Now < failure.Until)
-                throw new InvalidOperationException(failure.Message);
+                throw failure.NotConnected ? new ProviderNotConnectedException(failure.Message)
+                    : failure.RateLimited ? new ClaudeRateLimitedException(failure.Message, failure.Until)
+                    : new InvalidOperationException(failure.Message);
 
             string temporary = Path.Combine(Path.GetDirectoryName(path)!, ".quotra-oauth-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
@@ -192,8 +194,8 @@ internal sealed class ClaudeOAuthClient(HttpClient http, Action<string>? log = n
             string json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
             return ParseFile(JsonNode.Parse(json) as JsonObject ?? throw new JsonException());
         }
-        catch (FileNotFoundException) { throw new InvalidOperationException("Claude Code 로그인 파일이 없습니다. 설정에서 Claude 로그인을 사용하세요."); }
-        catch (DirectoryNotFoundException) { throw new InvalidOperationException("Claude Code 로그인 폴더가 없습니다. CLAUDE_CONFIG_DIR 경로를 확인하세요."); }
+        catch (FileNotFoundException) { throw new ProviderNotConnectedException("Claude Code 로그인 파일이 없습니다. Claude Code에서 로그인한 뒤 새로고침하세요."); }
+        catch (DirectoryNotFoundException) { throw new ProviderNotConnectedException("Claude Code 로그인 폴더가 없습니다. Claude Code에서 로그인한 뒤 새로고침하세요."); }
         catch (JsonException) { throw new InvalidOperationException("Claude Code 로그인 파일 형식이 올바르지 않습니다. Claude Code에서 다시 로그인하세요."); }
         catch (IOException) { throw new InvalidOperationException("Claude Code 로그인 파일을 읽을 수 없습니다."); }
         catch (UnauthorizedAccessException) { throw new InvalidOperationException("Claude Code 로그인 파일에 접근할 권한이 없습니다."); }
@@ -202,7 +204,7 @@ internal sealed class ClaudeOAuthClient(HttpClient http, Action<string>? log = n
     private static CredentialFile ParseFile(JsonObject root)
     {
         if (root["claudeAiOauth"] is not JsonObject oauth || String(oauth["accessToken"]) is not { } access)
-            throw new InvalidOperationException("Claude Code 구독 OAuth 토큰이 없습니다. 설정에서 Claude 로그인을 사용하세요.");
+            throw new ProviderNotConnectedException("Claude Code 구독 OAuth 토큰이 없습니다. Claude Code에서 구독 계정으로 로그인한 뒤 새로고침하세요.");
         ValidateToken(access);
         string? refresh = String(oauth["refreshToken"]);
         if (refresh is not null) ValidateToken(refresh);
@@ -214,7 +216,9 @@ internal sealed class ClaudeOAuthClient(HttpClient http, Action<string>? log = n
             expiry = DateTimeOffset.FromUnixTimeMilliseconds(milliseconds);
         }
         string fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(access + "\n" + refresh + "\n" + expiry?.ToUnixTimeMilliseconds())));
-        return new CredentialFile(root, new ClaudeOAuthCredential(access, String(oauth["subscriptionType"])), refresh, expiry, fingerprint);
+        bool hasUsageScope = oauth["scopes"] is not JsonArray scopes
+            || scopes.Any(scope => String(scope) == "user:profile");
+        return new CredentialFile(root, new ClaudeOAuthCredential(access, String(oauth["subscriptionType"]), hasUsageScope: hasUsageScope), refresh, expiry, fingerprint);
     }
 
     private JsonObject ParseRefreshed(string body, CredentialFile current)
@@ -255,8 +259,9 @@ internal sealed class ClaudeOAuthClient(HttpClient http, Action<string>? log = n
             (response.Headers.RetryAfter?.Date is { } date ? date - Now : TimeSpan.FromMinutes(1));
         // Respect long Retry-After values; short/negative values still back off for a minute.
         DateTimeOffset until = rejected ? DateTimeOffset.MaxValue : Now.AddSeconds(Math.Clamp(wait.TotalSeconds, 60, 86400));
-        _failures[path] = new Failure(current.Fingerprint, until, message);
-        return new InvalidOperationException(message);
+        _failures[path] = new Failure(current.Fingerprint, until, message, rejected, status == 429);
+        return rejected ? new ProviderNotConnectedException(message)
+            : status == 429 ? new ClaudeRateLimitedException(message, until) : new InvalidOperationException(message);
     }
 
     private static string? String(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out string? text)
@@ -266,7 +271,7 @@ internal sealed class ClaudeOAuthClient(HttpClient http, Action<string>? log = n
         if (token.Length > 16_384 || token.Any(c => c <= ' ' || c >= 127)) throw new JsonException();
     }
 
-    private sealed record Failure(string Fingerprint, DateTimeOffset Until, string Message);
+    private sealed record Failure(string Fingerprint, DateTimeOffset Until, string Message, bool NotConnected, bool RateLimited);
     private sealed record CredentialFile(JsonObject Root, ClaudeOAuthCredential Credential, string? RefreshToken, DateTimeOffset? ExpiresAt, string Fingerprint);
 
     private sealed class RefreshLock : IDisposable
@@ -315,10 +320,11 @@ internal sealed class ClaudeOAuthClient(HttpClient http, Action<string>? log = n
 }
 
 /// <summary>Do not use a record: its generated ToString would expose credentials in diagnostics.</summary>
-internal sealed class ClaudeOAuthCredential(string accessToken, string? plan, bool refreshed = false)
+internal sealed class ClaudeOAuthCredential(string accessToken, string? plan, bool refreshed = false, bool hasUsageScope = true)
 {
     internal string AccessToken { get; } = accessToken;
     internal string? Plan { get; } = plan;
     internal bool Refreshed { get; } = refreshed;
-    internal ClaudeOAuthCredential WithRefreshed() => new(AccessToken, Plan, true);
+    internal bool HasUsageScope { get; } = hasUsageScope;
+    internal ClaudeOAuthCredential WithRefreshed() => new(AccessToken, Plan, true, HasUsageScope);
 }

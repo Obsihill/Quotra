@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <!-- 로컬 빌드 기본값 — csproj의 Version과 맞춰 둔다(릴리스는 publish-release.ps1이 태그 버전으로 교체). -->
-  <assemblyIdentity version="1.0.2.0" name="Quotra.WinUI.app" />
+  <assemblyIdentity version="1.1.2.0" name="Quotra.WinUI.app" />
 
   <!-- Per-Monitor V2 DPI: 다중 모니터 + 서로 다른 배율에서 물리 좌표 배치가 정확해진다. -->
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
